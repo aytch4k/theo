@@ -23,7 +23,7 @@ var (
 	message    = flag.String("message", "", "Commit message")
 	branch     = flag.String("branch", "main", "Branch name")
 	jsonlOut   = flag.Bool("jsonl", false, "Export in JSONL format")
-	sourceRepo = flag.String("source-repo", "", "Source Git repository URL or path for import")
+	sourceRepo = flag.String("source", "", "Source Git repository URL or path for import")
 )
 
 func main() {
