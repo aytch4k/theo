@@ -7,128 +7,80 @@ This document describes how to build, test, and release Theo using Docker.
 - Docker
 - Docker Compose
 
-## Build Process
+## Development Build
 
-Theo uses Docker to ensure consistent builds across different platforms. The build process is orchestrated using Docker Compose and a set of Dockerfiles.
-
-### Dockerfile Overview
-
-- `Dockerfile`: Used for development and production builds
-- `Dockerfile.test`: Used for running tests
-- `Dockerfile.build`: Used for building cross-platform binaries
-- `docker-compose.yml`: Orchestrates the build, test, and release process
-
-## Building Theo
-
-### Using the Build Script
-
-The easiest way to build Theo is to use the provided build script:
-
-```bash
-# Make the script executable
-chmod +x scripts/build.sh
-
-# Show help
-./scripts/build.sh --help
-
-# Run tests
-./scripts/build.sh --test
-
-# Build for current platform
-./scripts/build.sh --build
-
-# Build for all platforms
-./scripts/build.sh --cross
-
-# Create release packages
-./scripts/build.sh --release
-
-# Run tests, build for all platforms, and create release packages
-./scripts/build.sh --all
-```
-
-### Using Docker Compose Directly
-
-You can also use Docker Compose directly:
-
-```bash
-# Run tests
-docker-compose run --rm test
-
-# Build for development
-docker-compose build dev
-
-# Build for all platforms
-docker-compose run --rm build
-
-# Create release packages
-docker-compose run --rm release
-```
-
-## Release Process
-
-The release process creates cross-platform binaries for the following platforms:
-
-- Linux (amd64)
-- Linux (arm64)
-- macOS (amd64)
-- macOS (arm64)
-- Windows (amd64)
-
-The binaries are compressed using UPX where possible and packaged as ZIP files in the `dist` directory.
-
-## Development
-
-For development, you can run Theo in a Docker container:
+To build and run Theo in development mode:
 
 ```bash
 docker-compose up dev
 ```
 
-This will start Theo in development mode, with the data directory mounted as a volume.
+This will build Theo and run it in a Docker container with live code reloading.
 
-## Continuous Integration
+## Running Tests
 
-The Dockerfiles and Docker Compose configuration can be used in a CI/CD pipeline to automate the build and release process.
+To run the tests:
 
-Example GitHub Actions workflow:
-
-```yaml
-name: Build and Release
-
-on:
-  push:
-    tags:
-      - 'v*'
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v1
-      - name: Build and test
-        run: ./scripts/build.sh --all
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v2
-        with:
-          name: theo-binaries
-          path: dist/*.zip
-      - name: Create Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v1
-        with:
-          files: dist/*.zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```bash
+docker-compose up test
 ```
 
-## Troubleshooting
+This will run all the tests in the Theo codebase.
 
-If you encounter any issues with the build process, try the following:
+## Building Releases
 
-1. Make sure Docker and Docker Compose are installed and running
-2. Clean the Docker cache: `docker system prune -a`
-3. Rebuild the images: `docker-compose build --no-cache`
-4. Check the Docker logs: `docker-compose logs`
+### Building for a Specific Platform
+
+To build Theo for a specific platform:
+
+```bash
+# For Linux
+docker-compose up build-linux
+
+# For macOS
+docker-compose up build-macos
+
+# For Windows
+docker-compose up build-windows
+```
+
+### Building for All Platforms
+
+To build Theo for all supported platforms:
+
+```bash
+docker-compose up build-all
+```
+
+This will create binaries for Linux, macOS (Intel and Apple Silicon), and Windows in the `dist` directory.
+
+## Release Artifacts
+
+After building, the following artifacts will be available in the `dist` directory:
+
+- `theo-linux-amd64` - Linux binary
+- `theo-linux-amd64.tar.gz` - Linux archive
+- `theo-darwin-amd64` - macOS Intel binary
+- `theo-darwin-amd64.tar.gz` - macOS Intel archive
+- `theo-darwin-arm64` - macOS Apple Silicon binary
+- `theo-darwin-arm64.tar.gz` - macOS Apple Silicon archive
+- `theo-windows-amd64.exe` - Windows binary
+- `theo-windows-amd64.zip` - Windows archive
+
+## Manual Build
+
+If you prefer to build without Docker, you can use the build script directly:
+
+```bash
+./scripts/build.sh
+```
+
+This requires Go 1.21 or later to be installed on your system.
+
+## Cross-Compilation Details
+
+The build process uses Go's cross-compilation capabilities to build binaries for different platforms. The Dockerfiles and build scripts handle the necessary environment setup for each target platform.
+
+## CI/CD Integration
+
+The Docker-based build system can be easily integrated into CI/CD pipelines by running the appropriate Docker Compose commands in your CI/CD configuration.

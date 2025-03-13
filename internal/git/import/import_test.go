@@ -55,6 +55,15 @@ func TestGitRepoImporter_InitializeChains(t *testing.T) {
 	if importer.PRCloseChain == nil {
 		t.Error("PRCloseChain was not initialized")
 	}
+	if importer.ForkChain == nil {
+		t.Error("ForkChain was not initialized")
+	}
+	if importer.StarChain == nil {
+		t.Error("StarChain was not initialized")
+	}
+	if importer.WatchChain == nil {
+		t.Error("WatchChain was not initialized")
+	}
 	if importer.RepoChain == nil {
 		t.Error("RepoChain was not initialized")
 	}
@@ -342,6 +351,9 @@ func TestGitRepoImporter_SaveChains(t *testing.T) {
 		"pr-create.json",
 		"pr-merge.json",
 		"pr-close.json",
+		"fork.json",
+		"star.json",
+		"watch.json",
 	}
 	for _, file := range files {
 		filePath := filepath.Join(repoDir, file)

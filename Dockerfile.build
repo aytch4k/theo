@@ -1,16 +1,14 @@
-FROM golang:1.21 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.21-alpine AS builder
+
+ARG TARGETPLATFORM
+ARG BUILDPLATFORM
+ARG TARGETOS
+ARG TARGETARCH
+
+WORKDIR /app
 
 # Install build dependencies
-RUN apt-get update && apt-get install -y \
-    git \
-    make \
-    gcc \
-    g++ \
-    zip \
-    && rm -rf /var/lib/apt/lists/*
-
-# Set working directory
-WORKDIR /app
+RUN apk add --no-cache git make gcc libc-dev
 
 # Copy go.mod and go.sum files
 COPY go.mod go.sum ./
@@ -21,43 +19,22 @@ RUN go mod download
 # Copy the source code
 COPY . .
 
-# Build for multiple platforms
-RUN mkdir -p /dist
+# Set up cross-compilation
+RUN echo "Building for $TARGETOS/$TARGETARCH on $BUILDPLATFORM"
 
-# Linux (amd64)
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o /dist/theo-linux-amd64 ./cmd/theo
+# Build the application with proper flags for the target platform
+RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /app/dist/theo-$TARGETOS-$TARGETARCH ./cmd/theo
 
-# Linux (arm64)
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o /dist/theo-linux-arm64 ./cmd/theo
+# Create a minimal runtime image for each platform
+FROM --platform=$TARGETPLATFORM alpine:3.18 AS runtime
 
-# macOS (amd64)
-RUN CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o /dist/theo-darwin-amd64 ./cmd/theo
+WORKDIR /app
 
-# macOS (arm64)
-RUN CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o /dist/theo-darwin-arm64 ./cmd/theo
+# Install runtime dependencies
+RUN apk add --no-cache ca-certificates git
 
-# Windows (amd64)
-RUN CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o /dist/theo-windows-amd64.exe ./cmd/theo
-
-# Create zip archives
-WORKDIR /dist
-RUN zip -9 theo-linux-amd64.zip theo-linux-amd64
-RUN zip -9 theo-linux-arm64.zip theo-linux-arm64
-RUN zip -9 theo-darwin-amd64.zip theo-darwin-amd64
-RUN zip -9 theo-darwin-arm64.zip theo-darwin-arm64
-RUN zip -9 theo-windows-amd64.zip theo-windows-amd64.exe
-
-# Final stage
-FROM alpine:latest
-
-# Install dependencies
-RUN apk add --no-cache ca-certificates
-
-# Copy the binaries from the builder stage
-COPY --from=builder /dist /dist
-
-# Set the working directory
-WORKDIR /dist
+# Copy the binary from the builder stage
+COPY --from=builder /app/dist/theo-$TARGETOS-$TARGETARCH /app/theo
 
 # Set the entrypoint
-ENTRYPOINT ["/bin/sh"]
+ENTRYPOINT ["/app/theo"]

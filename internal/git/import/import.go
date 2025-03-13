@@ -32,6 +32,9 @@ type GitRepoImporter struct {
 	PRCreateChain     *action.PRCreateChain
 	PRMergeChain      *action.PRMergeChain
 	PRCloseChain      *action.PRCloseChain
+	ForkChain         *action.ForkChain
+	StarChain         *action.StarChain
+	WatchChain        *action.WatchChain
 	RepoChain         *master.RepoMasterChain
 }
 
@@ -179,6 +182,9 @@ func (g *GitRepoImporter) initializeChains() error {
 	g.PRCreateChain = action.NewPRCreateChain(g.RepoID)
 	g.PRMergeChain = action.NewPRMergeChain(g.RepoID)
 	g.PRCloseChain = action.NewPRCloseChain(g.RepoID)
+	g.ForkChain = action.NewForkChain(g.RepoID)
+	g.StarChain = action.NewStarChain(g.RepoID)
+	g.WatchChain = action.NewWatchChain(g.RepoID)
 
 	// Add repository creation to chain
 	if err := g.addRepoCreationToChain(); err != nil {
@@ -981,6 +987,36 @@ func (g *GitRepoImporter) saveChains() error {
 	prCloseFile := filepath.Join(repoDir, "pr-close.json")
 	if err := os.WriteFile(prCloseFile, prCloseData, 0644); err != nil {
 		return fmt.Errorf("failed to write PR close chain to file: %w", err)
+	}
+
+	// Save fork chain
+	forkData, err := g.ForkChain.Export()
+	if err != nil {
+		return fmt.Errorf("failed to export fork chain: %w", err)
+	}
+	forkFile := filepath.Join(repoDir, "fork.json")
+	if err := os.WriteFile(forkFile, forkData, 0644); err != nil {
+		return fmt.Errorf("failed to write fork chain to file: %w", err)
+	}
+
+	// Save star chain
+	starData, err := g.StarChain.Export()
+	if err != nil {
+		return fmt.Errorf("failed to export star chain: %w", err)
+	}
+	starFile := filepath.Join(repoDir, "star.json")
+	if err := os.WriteFile(starFile, starData, 0644); err != nil {
+		return fmt.Errorf("failed to write star chain to file: %w", err)
+	}
+
+	// Save watch chain
+	watchData, err := g.WatchChain.Export()
+	if err != nil {
+		return fmt.Errorf("failed to export watch chain: %w", err)
+	}
+	watchFile := filepath.Join(repoDir, "watch.json")
+	if err := os.WriteFile(watchFile, watchData, 0644); err != nil {
+		return fmt.Errorf("failed to write watch chain to file: %w", err)
 	}
 
 	fmt.Println("Chains saved successfully")

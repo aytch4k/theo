@@ -1,50 +1,69 @@
 version: '3.8'
 
 services:
-  # Development service
+  # Development environment
   dev:
     build:
       context: .
       dockerfile: Dockerfile
     volumes:
-      - ./data:/app/data
-    command: ["serve"]
-    ports:
-      - "8080:8080"
+      - .:/app
+      - theo-data:/data
+    command: ["sh", "-c", "go run ./cmd/theo"]
     environment:
-      - THEO_ENV=development
-      - THEO_DATA_DIR=/app/data
+      - THEO_DATA_DIR=/data
 
-  # Test service
+  # Test environment
   test:
     build:
       context: .
       dockerfile: Dockerfile.test
     volumes:
       - .:/app
-    environment:
-      - THEO_ENV=test
+    command: ["go", "test", "-v", "./..."]
 
-  # Build service for cross-platform binaries
-  build:
+  # Build environment for Linux
+  build-linux:
     build:
       context: .
       dockerfile: Dockerfile.build
+      args:
+        TARGETOS: linux
+        TARGETARCH: amd64
     volumes:
-      - ./dist:/dist
-    command: ["cp", "-r", "/dist", "/app/"]
+      - ./dist:/app/dist
 
-  # Release service
-  release:
+  # Build environment for macOS
+  build-macos:
     build:
       context: .
       dockerfile: Dockerfile.build
+      args:
+        TARGETOS: darwin
+        TARGETARCH: amd64
     volumes:
-      - ./dist:/dist
-    command: >
-      sh -c "mkdir -p /app/dist &&
-             cp -r /dist/*.zip /app/dist/ &&
-             echo 'Release artifacts created in ./dist directory'"
+      - ./dist:/app/dist
+
+  # Build environment for Windows
+  build-windows:
+    build:
+      context: .
+      dockerfile: Dockerfile.build
+      args:
+        TARGETOS: windows
+        TARGETARCH: amd64
+    volumes:
+      - ./dist:/app/dist
+
+  # Build all platforms
+  build-all:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/app
+      - ./dist:/app/dist
+    command: ["sh", "-c", "./scripts/build.sh"]
 
 volumes:
-  data:
+  theo-data:

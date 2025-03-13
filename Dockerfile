@@ -1,10 +1,9 @@
 FROM golang:1.21-alpine AS builder
 
-# Install build dependencies
-RUN apk add --no-cache git make gcc musl-dev
-
-# Set working directory
 WORKDIR /app
+
+# Install build dependencies
+RUN apk add --no-cache git make gcc libc-dev
 
 # Copy go.mod and go.sum files
 COPY go.mod go.sum ./
@@ -16,28 +15,18 @@ RUN go mod download
 COPY . .
 
 # Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o theo ./cmd/theo
+RUN go build -o theo ./cmd/theo
 
-# Create a minimal image
-FROM alpine:latest
+# Create a minimal runtime image
+FROM alpine:3.18
 
-# Install git and other dependencies
-RUN apk add --no-cache git ca-certificates tzdata
-
-# Set working directory
 WORKDIR /app
+
+# Install runtime dependencies
+RUN apk add --no-cache ca-certificates git
 
 # Copy the binary from the builder stage
 COPY --from=builder /app/theo /app/theo
-
-# Create data directory
-RUN mkdir -p /app/data
-
-# Set environment variables
-ENV THEO_DATA_DIR=/app/data
-
-# Expose ports if needed
-# EXPOSE 8080
 
 # Set the entrypoint
 ENTRYPOINT ["/app/theo"]
