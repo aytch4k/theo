@@ -1,0 +1,85 @@
+services:
+  # Build service for compiling the application
+  build:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: theo:latest
+    volumes:
+      - ./dist:/app/dist
+    command: ["--help"]
+    environment:
+      - CGO_ENABLED=1
+      - GOOS=linux
+      - GOARCH=amd64
+
+  # Test service for running tests
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    volumes:
+      - .:/app
+      - go-modules:/go/pkg/mod
+    command: ["go", "test", "./..."]
+    environment:
+      - CGO_ENABLED=1
+
+  # Cross-platform build services
+  build-linux-amd64:
+    build:
+      context: .
+      dockerfile: Dockerfile.build
+    volumes:
+      - ./dist:/app/dist
+    environment:
+      - GOOS=linux
+      - GOARCH=amd64
+      - OUTPUT_NAME=theo-linux-amd64
+
+  build-linux-arm64:
+    build:
+      context: .
+      dockerfile: Dockerfile.build
+    volumes:
+      - ./dist:/app/dist
+    environment:
+      - GOOS=linux
+      - GOARCH=arm64
+      - OUTPUT_NAME=theo-linux-arm64
+
+  build-darwin-amd64:
+    build:
+      context: .
+      dockerfile: Dockerfile.build
+    volumes:
+      - ./dist:/app/dist
+    environment:
+      - GOOS=darwin
+      - GOARCH=amd64
+      - OUTPUT_NAME=theo-darwin-amd64
+
+  build-darwin-arm64:
+    build:
+      context: .
+      dockerfile: Dockerfile.build
+    volumes:
+      - ./dist:/app/dist
+    environment:
+      - GOOS=darwin
+      - GOARCH=arm64
+      - OUTPUT_NAME=theo-darwin-arm64
+
+  build-windows-amd64:
+    build:
+      context: .
+      dockerfile: Dockerfile.build
+    volumes:
+      - ./dist:/app/dist
+    environment:
+      - GOOS=windows
+      - GOARCH=amd64
+      - OUTPUT_NAME=theo-windows-amd64.exe
+
+volumes:
+  go-modules:

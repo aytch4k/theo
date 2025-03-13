@@ -1,0 +1,26 @@
+FROM golang:1.18-alpine
+
+# Install build dependencies
+RUN apk add --no-cache git make gcc libc-dev zip tar
+
+# Set working directory
+WORKDIR /app
+
+# Copy go.mod and go.sum files
+COPY go.mod go.sum ./
+
+# Download dependencies
+RUN go mod download
+
+# Copy the source code
+COPY . .
+
+# Create dist directory
+RUN mkdir -p /app/dist
+
+# Build script that uses environment variables for cross-platform builds
+COPY scripts/build.sh /app/build.sh
+RUN chmod +x /app/build.sh
+
+# Set the entrypoint to the build script
+ENTRYPOINT ["/app/build.sh"]
