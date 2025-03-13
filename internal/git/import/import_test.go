@@ -43,6 +43,18 @@ func TestGitRepoImporter_InitializeChains(t *testing.T) {
 	if importer.TagChain == nil {
 		t.Error("TagChain was not initialized")
 	}
+	if importer.RepoCreationChain == nil {
+		t.Error("RepoCreationChain was not initialized")
+	}
+	if importer.PRCreateChain == nil {
+		t.Error("PRCreateChain was not initialized")
+	}
+	if importer.PRMergeChain == nil {
+		t.Error("PRMergeChain was not initialized")
+	}
+	if importer.PRCloseChain == nil {
+		t.Error("PRCloseChain was not initialized")
+	}
 	if importer.RepoChain == nil {
 		t.Error("RepoChain was not initialized")
 	}
@@ -104,8 +116,9 @@ func TestGitRepoImporter_AddTagToChain(t *testing.T) {
 	}
 
 	// Verify that the tag was added to the repository chain
-	if len(importer.RepoChain.Blocks) != 1 {
-		t.Errorf("Expected 1 block in repository chain, got %d", len(importer.RepoChain.Blocks))
+	// Note: There should be 2 blocks - one for repo creation and one for the tag
+	if len(importer.RepoChain.Blocks) != 2 {
+		t.Errorf("Expected 2 blocks in repository chain, got %d", len(importer.RepoChain.Blocks))
 	}
 
 	// Verify the tag data
@@ -180,8 +193,9 @@ func TestGitRepoImporter_AddBranchDeleteToChain(t *testing.T) {
 	}
 
 	// Verify that the branch delete was added to the repository chain
-	if len(importer.RepoChain.Blocks) != 1 {
-		t.Errorf("Expected 1 block in repository chain, got %d", len(importer.RepoChain.Blocks))
+	// Note: There should be 2 blocks - one for repo creation and one for the branch delete
+	if len(importer.RepoChain.Blocks) != 2 {
+		t.Errorf("Expected 2 blocks in repository chain, got %d", len(importer.RepoChain.Blocks))
 	}
 
 	// Verify the branch delete data
@@ -208,6 +222,62 @@ func TestGitRepoImporter_AddBranchDeleteToChain(t *testing.T) {
 	}
 	if branchDeleteData.Timestamp != branchDeleteInfo.Timestamp.Unix() {
 		t.Errorf("Expected timestamp %d, got %d", branchDeleteInfo.Timestamp.Unix(), branchDeleteData.Timestamp)
+	}
+}
+
+func TestGitRepoImporter_AddRepoCreationToChain(t *testing.T) {
+	// Create a temporary directory for testing
+	tempDir, err := os.MkdirTemp("", "theo-test-")
+	if err != nil {
+		t.Fatalf("Failed to create temporary directory: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Create a GitRepoImporter
+	importer := NewGitRepoImporter(tempDir, "test-repo", "test-owner", "test-user", "test-source")
+
+	// Initialize chains
+	err = importer.initializeChains()
+	if err != nil {
+		t.Fatalf("Failed to initialize chains: %v", err)
+	}
+
+	// Verify that the repository creation was added to the repository creation chain
+	if len(importer.RepoCreationChain.Blocks) != 1 {
+		t.Errorf("Expected 1 block in repository creation chain, got %d", len(importer.RepoCreationChain.Blocks))
+	}
+
+	// Verify that the repository creation was added to the repository chain
+	if len(importer.RepoChain.Blocks) != 1 {
+		t.Errorf("Expected 1 block in repository chain, got %d", len(importer.RepoChain.Blocks))
+	}
+
+	// Verify the repository creation data
+	var repoCreationData struct {
+		RepoName          string `json:"repo_name"`
+		Owner             string `json:"owner"`
+		CreationTimestamp int64  `json:"creation_timestamp"`
+		Visibility        string `json:"visibility"`
+	}
+	err = json.Unmarshal(importer.RepoCreationChain.Blocks[0].Data, &repoCreationData)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal repository creation data: %v", err)
+	}
+
+	if repoCreationData.RepoName != "test-repo" {
+		t.Errorf("Expected repo name 'test-repo', got '%s'", repoCreationData.RepoName)
+	}
+	if repoCreationData.Owner != "test-owner" {
+		t.Errorf("Expected owner 'test-owner', got '%s'", repoCreationData.Owner)
+	}
+	if repoCreationData.Visibility != "public" {
+		t.Errorf("Expected visibility 'public', got '%s'", repoCreationData.Visibility)
+	}
+
+	// Verify timestamp is reasonable (within the last minute)
+	now := time.Now().Unix()
+	if repoCreationData.CreationTimestamp > now || repoCreationData.CreationTimestamp < now-60 {
+		t.Errorf("Expected timestamp to be within the last minute, got %d (now: %d)", repoCreationData.CreationTimestamp, now)
 	}
 }
 
@@ -268,6 +338,10 @@ func TestGitRepoImporter_SaveChains(t *testing.T) {
 		"branch.json",
 		"branch-delete.json",
 		"tag.json",
+		"repo-creation.json",
+		"pr-create.json",
+		"pr-merge.json",
+		"pr-close.json",
 	}
 	for _, file := range files {
 		filePath := filepath.Join(repoDir, file)
@@ -302,5 +376,19 @@ func TestGitRepoImporter_SaveChains(t *testing.T) {
 	}
 	if len(branchDeleteChain.Blocks) != 1 {
 		t.Errorf("Expected 1 block in branch delete chain, got %d", len(branchDeleteChain.Blocks))
+	}
+
+	// Verify that the repo creation chain file contains the correct data
+	repoCreationChainData, err := os.ReadFile(filepath.Join(repoDir, "repo-creation.json"))
+	if err != nil {
+		t.Fatalf("Failed to read repo creation chain file: %v", err)
+	}
+	repoCreationChain := action.NewActionChain("", "")
+	err = repoCreationChain.Import(repoCreationChainData)
+	if err != nil {
+		t.Fatalf("Failed to import repo creation chain data: %v", err)
+	}
+	if len(repoCreationChain.Blocks) != 1 {
+		t.Errorf("Expected 1 block in repo creation chain, got %d", len(repoCreationChain.Blocks))
 	}
 }

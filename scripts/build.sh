@@ -1,72 +1,121 @@
 #!/bin/bash
 set -e
 
-# Define variables
-DIST_DIR="./dist"
-PLATFORMS=("linux/amd64" "linux/arm64" "darwin/amd64" "darwin/arm64" "windows/amd64")
-VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
-BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-COMMIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+# Define colors for output
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
 
-# Print build information
-echo "Building Theo version: $VERSION"
-echo "Build date: $BUILD_DATE"
-echo "Commit hash: $COMMIT_HASH"
+# Print with color
+print_green() {
+    echo -e "${GREEN}$1${NC}"
+}
 
-# Create distribution directory
-mkdir -p $DIST_DIR
+print_yellow() {
+    echo -e "${YELLOW}$1${NC}"
+}
 
-# Build using Docker
-echo "Building cross-platform binaries using Docker..."
-docker-compose build build
-docker-compose run --rm build
+print_red() {
+    echo -e "${RED}$1${NC}"
+}
 
-# Create checksums
-echo "Creating checksums..."
-cd $DIST_DIR
-for file in theo_*; do
-    if [ -f "$file" ]; then
-        sha256sum "$file" > "$file.sha256"
-    fi
+# Create dist directory if it doesn't exist
+mkdir -p dist
+
+# Function to show help
+show_help() {
+    echo "Usage: $0 [options]"
+    echo ""
+    echo "Options:"
+    echo "  -h, --help      Show this help message"
+    echo "  -t, --test      Run tests"
+    echo "  -b, --build     Build for current platform"
+    echo "  -c, --cross     Build for all platforms"
+    echo "  -r, --release   Create release packages"
+    echo "  -a, --all       Run tests, build for all platforms, and create release packages"
+    echo ""
+    echo "Examples:"
+    echo "  $0 --test       # Run tests"
+    echo "  $0 --build      # Build for current platform"
+    echo "  $0 --cross      # Build for all platforms"
+    echo "  $0 --release    # Create release packages"
+    echo "  $0 --all        # Run tests, build for all platforms, and create release packages"
+}
+
+# Parse arguments
+if [ $# -eq 0 ]; then
+    show_help
+    exit 0
+fi
+
+RUN_TESTS=false
+BUILD_CURRENT=false
+BUILD_CROSS=false
+CREATE_RELEASE=false
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        -t|--test)
+            RUN_TESTS=true
+            shift
+            ;;
+        -b|--build)
+            BUILD_CURRENT=true
+            shift
+            ;;
+        -c|--cross)
+            BUILD_CROSS=true
+            shift
+            ;;
+        -r|--release)
+            CREATE_RELEASE=true
+            shift
+            ;;
+        -a|--all)
+            RUN_TESTS=true
+            BUILD_CROSS=true
+            CREATE_RELEASE=true
+            shift
+            ;;
+        *)
+            print_red "Unknown option: $1"
+            show_help
+            exit 1
+            ;;
+    esac
 done
-cd ..
 
-# Create archives
-echo "Creating archives..."
-cd $DIST_DIR
-for file in theo_*; do
-    if [ -f "$file" ] && [[ ! "$file" == *.sha256 ]]; then
-        # Skip if archive already exists
-        if [ -f "$file.tar.gz" ] || [ -f "$file.zip" ]; then
-            continue
-        fi
-        
-        # Create temporary directory
-        TEMP_DIR="temp_$file"
-        mkdir -p $TEMP_DIR
-        
-        # Copy binary and documentation
-        cp "$file" "$TEMP_DIR/theo"
-        cp ../README.md "$TEMP_DIR/"
-        cp ../LICENSE "$TEMP_DIR/" 2>/dev/null || echo "No LICENSE file found"
-        cp -r ../docs "$TEMP_DIR/" 2>/dev/null || echo "No docs directory found"
-        
-        # Create archive based on platform
-        if [[ "$file" == *"windows"* ]]; then
-            # For Windows, create a zip file
-            zip -r "$file.zip" "$TEMP_DIR"
-            echo "Created $file.zip"
-        else
-            # For Linux and macOS, create a tar.gz file
-            tar -czf "$file.tar.gz" "$TEMP_DIR"
-            echo "Created $file.tar.gz"
-        fi
-        
-        # Clean up
-        rm -rf "$TEMP_DIR"
-    fi
-done
-cd ..
+# Run tests
+if [ "$RUN_TESTS" = true ]; then
+    print_yellow "Running tests..."
+    docker-compose run --rm test
+    print_green "Tests completed successfully!"
+fi
 
-echo "Build completed successfully!"
-echo "Binaries and archives are available in the $DIST_DIR directory"
+# Build for current platform
+if [ "$BUILD_CURRENT" = true ]; then
+    print_yellow "Building for current platform..."
+    docker-compose build dev
+    print_green "Build completed successfully!"
+fi
+
+# Build for all platforms
+if [ "$BUILD_CROSS" = true ]; then
+    print_yellow "Building for all platforms..."
+    docker-compose run --rm build
+    print_green "Cross-platform build completed successfully!"
+fi
+
+# Create release packages
+if [ "$CREATE_RELEASE" = true ]; then
+    print_yellow "Creating release packages..."
+    docker-compose run --rm release
+    print_green "Release packages created successfully in ./dist directory!"
+fi
+
+print_green "All operations completed successfully!"

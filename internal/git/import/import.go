@@ -28,6 +28,10 @@ type GitRepoImporter struct {
 	BranchChain       *action.ActionChain
 	BranchDeleteChain *action.ActionChain
 	TagChain          *action.ActionChain
+	RepoCreationChain *action.RepoCreationChain
+	PRCreateChain     *action.PRCreateChain
+	PRMergeChain      *action.PRMergeChain
+	PRCloseChain      *action.PRCloseChain
 	RepoChain         *master.RepoMasterChain
 }
 
@@ -171,7 +175,40 @@ func (g *GitRepoImporter) initializeChains() error {
 	g.BranchChain = action.NewActionChain("branch", g.RepoID)
 	g.BranchDeleteChain = action.NewActionChain("branch-delete", g.RepoID)
 	g.TagChain = action.NewActionChain("tag", g.RepoID)
+	g.RepoCreationChain = action.NewRepoCreationChain(g.RepoID)
+	g.PRCreateChain = action.NewPRCreateChain(g.RepoID)
+	g.PRMergeChain = action.NewPRMergeChain(g.RepoID)
+	g.PRCloseChain = action.NewPRCloseChain(g.RepoID)
 
+	// Add repository creation to chain
+	if err := g.addRepoCreationToChain(); err != nil {
+		return fmt.Errorf("failed to add repository creation to chain: %w", err)
+	}
+
+	return nil
+}
+
+// addRepoCreationToChain adds the repository creation to the chain
+func (g *GitRepoImporter) addRepoCreationToChain() error {
+	// Determine repository visibility (public by default)
+	visibility := "public"
+
+	// Add repository creation to chain
+	hash, err := g.RepoCreationChain.AddRepoCreation(g.RepoID, g.OwnerID, visibility)
+	if err != nil {
+		return fmt.Errorf("failed to add repository creation to chain: %w", err)
+	}
+
+	// Add to repository master chain
+	userData := master.UserData{
+		ID: g.OwnerID,
+	}
+	_, err = g.RepoChain.AddActionHash("repo-creation", hash, userData)
+	if err != nil {
+		return fmt.Errorf("failed to add repository creation to repository chain: %w", err)
+	}
+
+	fmt.Printf("Added repository creation: %s\n", g.RepoID)
 	return nil
 }
 
@@ -904,6 +941,46 @@ func (g *GitRepoImporter) saveChains() error {
 	branchDeleteFile := filepath.Join(repoDir, "branch-delete.json")
 	if err := os.WriteFile(branchDeleteFile, branchDeleteData, 0644); err != nil {
 		return fmt.Errorf("failed to write branch delete chain to file: %w", err)
+	}
+
+	// Save repository creation chain
+	repoCreationData, err := g.RepoCreationChain.Export()
+	if err != nil {
+		return fmt.Errorf("failed to export repository creation chain: %w", err)
+	}
+	repoCreationFile := filepath.Join(repoDir, "repo-creation.json")
+	if err := os.WriteFile(repoCreationFile, repoCreationData, 0644); err != nil {
+		return fmt.Errorf("failed to write repository creation chain to file: %w", err)
+	}
+
+	// Save PR create chain
+	prCreateData, err := g.PRCreateChain.Export()
+	if err != nil {
+		return fmt.Errorf("failed to export PR create chain: %w", err)
+	}
+	prCreateFile := filepath.Join(repoDir, "pr-create.json")
+	if err := os.WriteFile(prCreateFile, prCreateData, 0644); err != nil {
+		return fmt.Errorf("failed to write PR create chain to file: %w", err)
+	}
+
+	// Save PR merge chain
+	prMergeData, err := g.PRMergeChain.Export()
+	if err != nil {
+		return fmt.Errorf("failed to export PR merge chain: %w", err)
+	}
+	prMergeFile := filepath.Join(repoDir, "pr-merge.json")
+	if err := os.WriteFile(prMergeFile, prMergeData, 0644); err != nil {
+		return fmt.Errorf("failed to write PR merge chain to file: %w", err)
+	}
+
+	// Save PR close chain
+	prCloseData, err := g.PRCloseChain.Export()
+	if err != nil {
+		return fmt.Errorf("failed to export PR close chain: %w", err)
+	}
+	prCloseFile := filepath.Join(repoDir, "pr-close.json")
+	if err := os.WriteFile(prCloseFile, prCloseData, 0644); err != nil {
+		return fmt.Errorf("failed to write PR close chain to file: %w", err)
 	}
 
 	fmt.Println("Chains saved successfully")

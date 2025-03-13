@@ -1,10 +1,13 @@
-FROM golang:1.21-alpine AS builder
+FROM golang:1.21 AS builder
 
 # Install build dependencies
-RUN apk add --no-cache git make
-
-# Install cross-compilation tools
-RUN go install github.com/mitchellh/gox@latest
+RUN apt-get update && apt-get install -y \
+    git \
+    make \
+    gcc \
+    g++ \
+    zip \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
@@ -15,23 +18,46 @@ COPY go.mod go.sum ./
 # Download dependencies
 RUN go mod download
 
-# Copy source code
+# Copy the source code
 COPY . .
 
 # Build for multiple platforms
-RUN mkdir -p /app/dist && \
-    gox -output="/app/dist/theo_{{.OS}}_{{.Arch}}" \
-    -osarch="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64" \
-    ./cmd/theo
+RUN mkdir -p /dist
 
-# Create a minimal image with the binaries
-FROM alpine:3.18
+# Linux (amd64)
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o /dist/theo-linux-amd64 ./cmd/theo
 
-# Set working directory
+# Linux (arm64)
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o /dist/theo-linux-arm64 ./cmd/theo
+
+# macOS (amd64)
+RUN CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o /dist/theo-darwin-amd64 ./cmd/theo
+
+# macOS (arm64)
+RUN CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o /dist/theo-darwin-arm64 ./cmd/theo
+
+# Windows (amd64)
+RUN CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o /dist/theo-windows-amd64.exe ./cmd/theo
+
+# Create zip archives
+WORKDIR /dist
+RUN zip -9 theo-linux-amd64.zip theo-linux-amd64
+RUN zip -9 theo-linux-arm64.zip theo-linux-arm64
+RUN zip -9 theo-darwin-amd64.zip theo-darwin-amd64
+RUN zip -9 theo-darwin-arm64.zip theo-darwin-arm64
+RUN zip -9 theo-windows-amd64.zip theo-windows-amd64.exe
+
+# Final stage
+FROM alpine:latest
+
+# Install dependencies
+RUN apk add --no-cache ca-certificates
+
+# Copy the binaries from the builder stage
+COPY --from=builder /dist /dist
+
+# Set the working directory
 WORKDIR /dist
 
-# Copy binaries from the builder stage
-COPY --from=builder /app/dist /dist
-
-# Default command to list the built binaries
-CMD ["ls", "-la", "/dist"]
+# Set the entrypoint
+ENTRYPOINT ["/bin/sh"]

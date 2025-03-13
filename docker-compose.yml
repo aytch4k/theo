@@ -1,18 +1,21 @@
 version: '3.8'
 
 services:
-  # Development environment
+  # Development service
   dev:
     build:
       context: .
       dockerfile: Dockerfile
     volumes:
       - ./data:/app/data
-    command: --cmd help
+    command: ["serve"]
+    ports:
+      - "8080:8080"
     environment:
-      - GO_ENV=development
+      - THEO_ENV=development
+      - THEO_DATA_DIR=/app/data
 
-  # Run tests
+  # Test service
   test:
     build:
       context: .
@@ -20,78 +23,28 @@ services:
     volumes:
       - .:/app
     environment:
-      - GO_ENV=test
+      - THEO_ENV=test
 
-  # Build cross-platform binaries
+  # Build service for cross-platform binaries
   build:
     build:
       context: .
       dockerfile: Dockerfile.build
     volumes:
       - ./dist:/dist
+    command: ["cp", "-r", "/dist", "/app/"]
 
-  # Import a Git repository
-  import-git:
+  # Release service
+  release:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.build
     volumes:
-      - ./data:/app/data
-    command: --cmd import-git --repo ${REPO_ID:-example} --owner ${OWNER_ID:-owner} --user ${USER_ID:-user} --source ${SOURCE_REPO:-https://github.com/example/repo.git}
-    environment:
-      - GO_ENV=production
+      - ./dist:/dist
+    command: >
+      sh -c "mkdir -p /app/dist &&
+             cp -r /dist/*.zip /app/dist/ &&
+             echo 'Release artifacts created in ./dist directory'"
 
-  # Export chains
-  export:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    volumes:
-      - ./data:/app/data
-    command: --cmd export --repo ${REPO_ID:-example} ${JSONL:---jsonl}
-    environment:
-      - GO_ENV=production
-
-  # Show repository status
-  status:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    volumes:
-      - ./data:/app/data
-    command: --cmd status --repo ${REPO_ID:-example}
-    environment:
-      - GO_ENV=production
-
-  # Add a commit
-  commit:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    volumes:
-      - ./data:/app/data
-    command: --cmd commit --repo ${REPO_ID:-example} --user ${USER_ID:-user} --message "${MESSAGE:-Commit message}" --branch ${BRANCH:-main}
-    environment:
-      - GO_ENV=production
-
-  # Add a tag
-  tag:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    volumes:
-      - ./data:/app/data
-    command: --cmd tag --repo ${REPO_ID:-example} --user ${USER_ID:-user} --tag-name ${TAG_NAME:-v1.0.0} --message "${MESSAGE:-Tag message}"
-    environment:
-      - GO_ENV=production
-
-  # Record a branch deletion
-  branch-delete:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    volumes:
-      - ./data:/app/data
-    command: --cmd branch-delete --repo ${REPO_ID:-example} --user ${USER_ID:-user} --branch ${BRANCH:-feature-branch} --message "${MESSAGE:-Branch deletion reason}"
-    environment:
-      - GO_ENV=production
+volumes:
+  data:
