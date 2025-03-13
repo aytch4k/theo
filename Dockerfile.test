@@ -1,16 +1,19 @@
-FROM golang:1.18-alpine
+FROM golang:1.21-alpine
 
 # Install build dependencies
-RUN apk add --no-cache git make gcc libc-dev
+RUN apk add --no-cache git make
 
 # Set working directory
 WORKDIR /app
 
-# We'll mount the source code as a volume, so we don't need to copy it here
-# This allows for faster test iterations during development
+# Copy go.mod and go.sum files
+COPY go.mod go.sum ./
 
-# Set the entrypoint to go test
-ENTRYPOINT ["go", "test"]
+# Download dependencies
+RUN go mod download
 
-# Default command runs all tests with verbose output
-CMD ["./...", "-v"]
+# Copy source code
+COPY . .
+
+# Run tests
+CMD ["go", "test", "-v", "./..."]

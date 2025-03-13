@@ -11,6 +11,7 @@ import (
 	"github.com/gold2th/theo/internal/blockchain/action"
 	"github.com/gold2th/theo/internal/blockchain/master"
 	gitimport "github.com/gold2th/theo/internal/git/import"
+	"github.com/google/uuid"
 )
 
 // Command-line flags
@@ -19,9 +20,10 @@ var (
 	ownerID    = flag.String("owner", "", "Owner ID")
 	userID     = flag.String("user", "", "User ID")
 	dataDir    = flag.String("data-dir", "./data", "Data directory")
-	command    = flag.String("cmd", "help", "Command to execute (init, commit, merge, status, export, import-git)")
+	command    = flag.String("cmd", "help", "Command to execute (init, commit, merge, status, export, import-git, tag, branch-delete)")
 	message    = flag.String("message", "", "Commit message")
 	branch     = flag.String("branch", "main", "Branch name")
+	tagName    = flag.String("tag-name", "", "Tag name")
 	jsonlOut   = flag.Bool("jsonl", false, "Export in JSONL format")
 	sourceRepo = flag.String("source", "", "Source Git repository URL or path for import")
 )
@@ -49,6 +51,10 @@ func main() {
 		exportChains()
 	case "import-git":
 		importGitRepo()
+	case "tag":
+		addTag()
+	case "branch-delete":
+		deleteBranch()
 	case "help":
 		showHelp()
 	default:
@@ -261,7 +267,7 @@ func showStatus() {
 	fmt.Printf("Verified: %v\n\n", repoChain.VerifyChain())
 
 	// Load action chains
-	actionTypes := []string{"commit", "merge", "branch"}
+	actionTypes := []string{"commit", "merge", "branch", "branch-delete", "tag"}
 	for _, actionType := range actionTypes {
 		actionChain, err := loadActionChain(actionType)
 		if err != nil {
@@ -345,7 +351,7 @@ func exportChains() {
 	fmt.Printf("Repository chain exported to %s\n", repoFile)
 
 	// Export action chains
-	actionTypes := []string{"commit", "merge", "branch"}
+	actionTypes := []string{"commit", "merge", "branch", "branch-delete", "tag"}
 	for _, actionType := range actionTypes {
 		actionChain, err := loadActionChain(actionType)
 		if err != nil {
@@ -402,6 +408,156 @@ func importGitRepo() {
 	fmt.Printf("Repository %s imported successfully\n", *sourceRepo)
 }
 
+// deleteBranch records a branch deletion in the repository
+func deleteBranch() {
+	if *repoID == "" || *userID == "" || *branch == "" {
+		fmt.Println("Error: Repository ID, User ID, and branch name are required")
+		os.Exit(1)
+	}
+
+	// Load repository chain
+	repoChain, err := loadRepoChain()
+	if err != nil {
+		fmt.Printf("Error loading repository chain: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Load or create branch delete chain
+	branchDeleteChain, err := loadActionChain("branch-delete")
+	if err != nil {
+		branchDeleteChain = action.NewActionChain("branch-delete", *repoID)
+	}
+
+	// Create branch delete data
+	branchDeleteData := struct {
+		BranchDeleteID string `json:"branch_delete_id"`
+		Name           string `json:"name"`
+		Author         string `json:"author"`
+		Message        string `json:"message"`
+		Timestamp      int64  `json:"timestamp"`
+	}{
+		BranchDeleteID: uuid.New().String(),
+		Name:           *branch,
+		Author:         *userID,
+		Message:        *message,
+		Timestamp:      time.Now().Unix(),
+	}
+
+	// Convert to JSON
+	branchDeleteJSON, err := json.Marshal(branchDeleteData)
+	if err != nil {
+		fmt.Printf("Error marshaling branch delete data: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Add to branch delete chain
+	branchDeleteHash, err := branchDeleteChain.AddBlock(branchDeleteJSON)
+	if err != nil {
+		fmt.Printf("Error adding branch delete to chain: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Save branch delete chain
+	if err := saveActionChain(branchDeleteChain); err != nil {
+		fmt.Printf("Error saving branch delete chain: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Add to repository master chain
+	userData := master.UserData{
+		ID: *userID,
+	}
+	_, err = repoChain.AddActionHash("branch-delete", branchDeleteHash, userData)
+	if err != nil {
+		fmt.Printf("Error adding branch delete to repository chain: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Save repository chain
+	if err := saveRepoChain(repoChain); err != nil {
+		fmt.Printf("Error saving repository chain: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Branch deleted: %s\n", *branch)
+}
+
+// addTag adds a tag to the repository
+func addTag() {
+	if *repoID == "" || *userID == "" || *tagName == "" {
+		fmt.Println("Error: Repository ID, User ID, and tag name are required")
+		os.Exit(1)
+	}
+
+	// Load repository chain
+	repoChain, err := loadRepoChain()
+	if err != nil {
+		fmt.Printf("Error loading repository chain: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Load or create tag chain
+	tagChain, err := loadActionChain("tag")
+	if err != nil {
+		tagChain = action.NewActionChain("tag", *repoID)
+	}
+
+	// Create tag data
+	tagData := struct {
+		TagID     string `json:"tag_id"`
+		Name      string `json:"name"`
+		CommitRef string `json:"commit_ref"`
+		Author    string `json:"author"`
+		Message   string `json:"message"`
+		Timestamp int64  `json:"timestamp"`
+	}{
+		TagID:     uuid.New().String(),
+		Name:      *tagName,
+		CommitRef: flag.Arg(0), // Optional commit reference
+		Author:    *userID,
+		Message:   *message,
+		Timestamp: time.Now().Unix(),
+	}
+
+	// Convert to JSON
+	tagJSON, err := json.Marshal(tagData)
+	if err != nil {
+		fmt.Printf("Error marshaling tag data: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Add to tag chain
+	tagHash, err := tagChain.AddBlock(tagJSON)
+	if err != nil {
+		fmt.Printf("Error adding tag to chain: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Save tag chain
+	if err := saveActionChain(tagChain); err != nil {
+		fmt.Printf("Error saving tag chain: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Add to repository master chain
+	userData := master.UserData{
+		ID: *userID,
+	}
+	_, err = repoChain.AddActionHash("tag", tagHash, userData)
+	if err != nil {
+		fmt.Printf("Error adding tag to repository chain: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Save repository chain
+	if err := saveRepoChain(repoChain); err != nil {
+		fmt.Printf("Error saving repository chain: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Tag added: %s\n", *tagName)
+}
+
 // showHelp shows the help message
 func showHelp() {
 	fmt.Println("Theo - A blockchain-based Git system")
@@ -413,10 +569,12 @@ func showHelp() {
 	fmt.Println("  init        Initialize a new repository")
 	fmt.Println("  commit      Add a commit to the repository")
 	fmt.Println("  merge       Add a merge to the repository")
-	fmt.Println("  status      Show the status of the repository")
-	fmt.Println("  export      Export the chains to files")
-	fmt.Println("  import-git  Import a Git repository into Theo")
-	fmt.Println("  help        Show this help message")
+	fmt.Println("  status        Show the status of the repository")
+	fmt.Println("  export        Export the chains to files")
+	fmt.Println("  import-git    Import a Git repository into Theo")
+	fmt.Println("  tag           Add a tag to the repository")
+	fmt.Println("  branch-delete Record a branch deletion in the repository")
+	fmt.Println("  help          Show this help message")
 	fmt.Println()
 	fmt.Println("Flags:")
 	flag.PrintDefaults()

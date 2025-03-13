@@ -17,16 +17,18 @@ import (
 
 // GitRepoImporter handles importing Git repositories into Theo
 type GitRepoImporter struct {
-	DataDir     string
-	RepoID      string
-	OwnerID     string
-	UserID      string
-	SourceRepo  string
-	WorkingDir  string
-	CommitChain *action.ActionChain
-	MergeChain  *action.ActionChain
-	BranchChain *action.ActionChain
-	RepoChain   *master.RepoMasterChain
+	DataDir           string
+	RepoID            string
+	OwnerID           string
+	UserID            string
+	SourceRepo        string
+	WorkingDir        string
+	CommitChain       *action.ActionChain
+	MergeChain        *action.ActionChain
+	BranchChain       *action.ActionChain
+	BranchDeleteChain *action.ActionChain
+	TagChain          *action.ActionChain
+	RepoChain         *master.RepoMasterChain
 }
 
 // CommitInfo represents Git commit information
@@ -54,6 +56,24 @@ type MergeInfo struct {
 type BranchInfo struct {
 	Name      string
 	CommitRef string
+	Author    string
+	Email     string
+	Timestamp time.Time
+}
+
+// TagInfo represents Git tag information
+type TagInfo struct {
+	Name      string
+	CommitRef string
+	Author    string
+	Email     string
+	Message   string
+	Timestamp time.Time
+}
+
+// BranchDeleteInfo represents Git branch deletion information
+type BranchDeleteInfo struct {
+	Name      string
 	Author    string
 	Email     string
 	Timestamp time.Time
@@ -105,6 +125,16 @@ func (g *GitRepoImporter) Import() error {
 		return err
 	}
 
+	// Import tags
+	if err := g.importTags(); err != nil {
+		return err
+	}
+
+	// Import deleted branches
+	if err := g.importDeletedBranches(); err != nil {
+		return err
+	}
+
 	// Save chains
 	if err := g.saveChains(); err != nil {
 		return err
@@ -139,6 +169,8 @@ func (g *GitRepoImporter) initializeChains() error {
 	g.CommitChain = action.NewActionChain("commit", g.RepoID)
 	g.MergeChain = action.NewActionChain("merge", g.RepoID)
 	g.BranchChain = action.NewActionChain("branch", g.RepoID)
+	g.BranchDeleteChain = action.NewActionChain("branch-delete", g.RepoID)
+	g.TagChain = action.NewActionChain("tag", g.RepoID)
 
 	return nil
 }
@@ -531,6 +563,279 @@ func (g *GitRepoImporter) addMergeToChain(mergeInfo *MergeInfo) error {
 	return nil
 }
 
+// importTags imports all tags from the Git repository
+func (g *GitRepoImporter) importTags() error {
+	fmt.Println("Importing tags...")
+
+	// Get all tags
+	cmd := exec.Command("git", "tag", "-l")
+	cmd.Dir = g.WorkingDir
+	output, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to get tags: %w", err)
+	}
+
+	tags := strings.Split(string(output), "\n")
+	for _, tag := range tags {
+		tag = strings.TrimSpace(tag)
+		if tag == "" {
+			continue
+		}
+
+		// Get tag info
+		tagInfo, err := g.getTagInfo(tag)
+		if err != nil {
+			fmt.Printf("Warning: Failed to get info for tag %s: %v\n", tag, err)
+			continue
+		}
+
+		// Add tag to chain
+		if err := g.addTagToChain(tagInfo); err != nil {
+			fmt.Printf("Warning: Failed to add tag %s to chain: %v\n", tag, err)
+			continue
+		}
+	}
+
+	return nil
+}
+
+// getTagInfo gets information about a tag
+func (g *GitRepoImporter) getTagInfo(tag string) (*TagInfo, error) {
+	// Get commit hash for tag
+	cmd := exec.Command("git", "rev-parse", tag)
+	cmd.Dir = g.WorkingDir
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get commit hash for tag: %w", err)
+	}
+	commitRef := strings.TrimSpace(string(output))
+
+	// Get tag message
+	cmd = exec.Command("git", "tag", "-n", tag)
+	cmd.Dir = g.WorkingDir
+	output, err = cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get tag message: %w", err)
+	}
+	message := strings.TrimSpace(string(output))
+	// Remove tag name from the beginning of the message
+	if strings.HasPrefix(message, tag) {
+		message = strings.TrimSpace(message[len(tag):])
+	}
+
+	// Get author and timestamp from the tag
+	cmd = exec.Command("git", "for-each-ref", "--format=%(taggername)|%(taggeremail)|%(taggerdate:unix)", "refs/tags/"+tag)
+	cmd.Dir = g.WorkingDir
+	output, err = cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get author info for tag: %w", err)
+	}
+
+	parts := strings.Split(strings.TrimSpace(string(output)), "|")
+
+	// If the tag is not an annotated tag, get the author from the commit
+	if len(parts) != 3 || parts[0] == "" {
+		cmd = exec.Command("git", "log", "-1", "--format=%an|%ae|%at", tag)
+		cmd.Dir = g.WorkingDir
+		output, err = cmd.Output()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get author info for tag commit: %w", err)
+		}
+		parts = strings.Split(strings.TrimSpace(string(output)), "|")
+	}
+
+	if len(parts) != 3 {
+		return nil, fmt.Errorf("unexpected format for tag author info")
+	}
+
+	author := parts[0]
+	email := parts[1]
+	timestamp, err := strconv.ParseInt(parts[2], 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse timestamp: %w", err)
+	}
+
+	return &TagInfo{
+		Name:      tag,
+		CommitRef: commitRef,
+		Author:    author,
+		Email:     email,
+		Message:   message,
+		Timestamp: time.Unix(timestamp, 0),
+	}, nil
+}
+
+// addTagToChain adds a tag to the tag chain
+func (g *GitRepoImporter) addTagToChain(tagInfo *TagInfo) error {
+	// Create tag data
+	tagData := struct {
+		TagID     string `json:"tag_id"`
+		Name      string `json:"name"`
+		CommitRef string `json:"commit_ref"`
+		Author    string `json:"author"`
+		Email     string `json:"email"`
+		Message   string `json:"message"`
+		Timestamp int64  `json:"timestamp"`
+	}{
+		TagID:     uuid.New().String(),
+		Name:      tagInfo.Name,
+		CommitRef: tagInfo.CommitRef,
+		Author:    tagInfo.Author,
+		Email:     tagInfo.Email,
+		Message:   tagInfo.Message,
+		Timestamp: tagInfo.Timestamp.Unix(),
+	}
+
+	// Convert to JSON
+	tagJSON, err := json.Marshal(tagData)
+	if err != nil {
+		return fmt.Errorf("failed to marshal tag data: %w", err)
+	}
+
+	// Add to tag chain
+	tagHash, err := g.TagChain.AddBlock(tagJSON)
+	if err != nil {
+		return fmt.Errorf("failed to add tag to chain: %w", err)
+	}
+
+	// Add to repository master chain
+	userData := master.UserData{
+		ID: g.UserID,
+	}
+	_, err = g.RepoChain.AddActionHash("tag", tagHash, userData)
+	if err != nil {
+		return fmt.Errorf("failed to add tag to repository chain: %w", err)
+	}
+
+	fmt.Printf("Added tag: %s\n", tagInfo.Name)
+	return nil
+}
+
+// importDeletedBranches imports all deleted branches from the Git repository
+func (g *GitRepoImporter) importDeletedBranches() error {
+	fmt.Println("Importing deleted branches...")
+
+	// Get all deleted branches
+	cmd := exec.Command("git", "log", "--diff-filter=D", "--summary")
+	cmd.Dir = g.WorkingDir
+	output, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to get deleted branches: %w", err)
+	}
+
+	// Parse the output to find deleted branches
+	lines := strings.Split(string(output), "\n")
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		if strings.Contains(line, "delete mode") && strings.Contains(line, "refs/heads/") {
+			// Extract branch name
+			parts := strings.Split(line, "refs/heads/")
+			if len(parts) < 2 {
+				continue
+			}
+			branchName := strings.TrimSpace(parts[1])
+
+			// Get author and timestamp from the commit
+			var author, email string
+			var timestamp time.Time
+
+			// Look for the commit info in the previous lines
+			for j := i - 1; j >= 0 && j >= i-5; j-- {
+				if strings.HasPrefix(lines[j], "Author:") {
+					authorLine := strings.TrimPrefix(lines[j], "Author:")
+					authorParts := strings.Split(authorLine, "<")
+					if len(authorParts) >= 2 {
+						author = strings.TrimSpace(authorParts[0])
+						email = strings.TrimSuffix(strings.TrimSpace(authorParts[1]), ">")
+					}
+				} else if strings.HasPrefix(lines[j], "Date:") {
+					dateLine := strings.TrimPrefix(lines[j], "Date:")
+					dateLine = strings.TrimSpace(dateLine)
+					// Parse the date
+					t, err := time.Parse("Mon Jan 2 15:04:05 2006 -0700", dateLine)
+					if err == nil {
+						timestamp = t
+					}
+				}
+
+				// If we found both author and timestamp, break
+				if author != "" && !timestamp.IsZero() {
+					break
+				}
+			}
+
+			// If we couldn't find the author or timestamp, use defaults
+			if author == "" {
+				author = "unknown"
+			}
+			if email == "" {
+				email = "unknown"
+			}
+			if timestamp.IsZero() {
+				timestamp = time.Now()
+			}
+
+			// Create branch delete info
+			branchDeleteInfo := &BranchDeleteInfo{
+				Name:      branchName,
+				Author:    author,
+				Email:     email,
+				Timestamp: timestamp,
+			}
+
+			// Add branch delete to chain
+			if err := g.addBranchDeleteToChain(branchDeleteInfo); err != nil {
+				fmt.Printf("Warning: Failed to add deleted branch %s to chain: %v\n", branchName, err)
+				continue
+			}
+		}
+	}
+
+	return nil
+}
+
+// addBranchDeleteToChain adds a branch deletion to the branch delete chain
+func (g *GitRepoImporter) addBranchDeleteToChain(branchDeleteInfo *BranchDeleteInfo) error {
+	// Create branch delete data
+	branchDeleteData := struct {
+		BranchDeleteID string `json:"branch_delete_id"`
+		Name           string `json:"name"`
+		Author         string `json:"author"`
+		Email          string `json:"email"`
+		Timestamp      int64  `json:"timestamp"`
+	}{
+		BranchDeleteID: uuid.New().String(),
+		Name:           branchDeleteInfo.Name,
+		Author:         branchDeleteInfo.Author,
+		Email:          branchDeleteInfo.Email,
+		Timestamp:      branchDeleteInfo.Timestamp.Unix(),
+	}
+
+	// Convert to JSON
+	branchDeleteJSON, err := json.Marshal(branchDeleteData)
+	if err != nil {
+		return fmt.Errorf("failed to marshal branch delete data: %w", err)
+	}
+
+	// Add to branch delete chain
+	branchDeleteHash, err := g.BranchDeleteChain.AddBlock(branchDeleteJSON)
+	if err != nil {
+		return fmt.Errorf("failed to add branch delete to chain: %w", err)
+	}
+
+	// Add to repository master chain
+	userData := master.UserData{
+		ID: g.UserID,
+	}
+	_, err = g.RepoChain.AddActionHash("branch-delete", branchDeleteHash, userData)
+	if err != nil {
+		return fmt.Errorf("failed to add branch delete to repository chain: %w", err)
+	}
+
+	fmt.Printf("Added deleted branch: %s\n", branchDeleteInfo.Name)
+	return nil
+}
+
 // saveChains saves all chains to disk
 func (g *GitRepoImporter) saveChains() error {
 	fmt.Println("Saving chains...")
@@ -579,6 +884,26 @@ func (g *GitRepoImporter) saveChains() error {
 	branchFile := filepath.Join(repoDir, "branch.json")
 	if err := os.WriteFile(branchFile, branchData, 0644); err != nil {
 		return fmt.Errorf("failed to write branch chain to file: %w", err)
+	}
+
+	// Save tag chain
+	tagData, err := g.TagChain.Export()
+	if err != nil {
+		return fmt.Errorf("failed to export tag chain: %w", err)
+	}
+	tagFile := filepath.Join(repoDir, "tag.json")
+	if err := os.WriteFile(tagFile, tagData, 0644); err != nil {
+		return fmt.Errorf("failed to write tag chain to file: %w", err)
+	}
+
+	// Save branch delete chain
+	branchDeleteData, err := g.BranchDeleteChain.Export()
+	if err != nil {
+		return fmt.Errorf("failed to export branch delete chain: %w", err)
+	}
+	branchDeleteFile := filepath.Join(repoDir, "branch-delete.json")
+	if err := os.WriteFile(branchDeleteFile, branchDeleteData, 0644); err != nil {
+		return fmt.Errorf("failed to write branch delete chain to file: %w", err)
 	}
 
 	fmt.Println("Chains saved successfully")

@@ -1,7 +1,10 @@
-FROM golang:1.18-alpine
+FROM golang:1.21-alpine AS builder
 
 # Install build dependencies
-RUN apk add --no-cache git make gcc libc-dev zip tar
+RUN apk add --no-cache git make
+
+# Install cross-compilation tools
+RUN go install github.com/mitchellh/gox@latest
 
 # Set working directory
 WORKDIR /app
@@ -12,15 +15,23 @@ COPY go.mod go.sum ./
 # Download dependencies
 RUN go mod download
 
-# Copy the source code
+# Copy source code
 COPY . .
 
-# Create dist directory
-RUN mkdir -p /app/dist
+# Build for multiple platforms
+RUN mkdir -p /app/dist && \
+    gox -output="/app/dist/theo_{{.OS}}_{{.Arch}}" \
+    -osarch="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64" \
+    ./cmd/theo
 
-# Build script that uses environment variables for cross-platform builds
-COPY scripts/build.sh /app/build.sh
-RUN chmod +x /app/build.sh
+# Create a minimal image with the binaries
+FROM alpine:3.18
 
-# Set the entrypoint to the build script
-ENTRYPOINT ["/app/build.sh"]
+# Set working directory
+WORKDIR /dist
+
+# Copy binaries from the builder stage
+COPY --from=builder /app/dist /dist
+
+# Default command to list the built binaries
+CMD ["ls", "-la", "/dist"]

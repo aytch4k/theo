@@ -1,8 +1,7 @@
-# Build stage
-FROM golang:1.18-alpine AS builder
+FROM golang:1.21-alpine AS builder
 
 # Install build dependencies
-RUN apk add --no-cache git make gcc libc-dev
+RUN apk add --no-cache git make
 
 # Set working directory
 WORKDIR /app
@@ -13,17 +12,17 @@ COPY go.mod go.sum ./
 # Download dependencies
 RUN go mod download
 
-# Copy the source code
+# Copy source code
 COPY . .
 
 # Build the application
-RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o theo ./cmd/theo
+RUN go build -o theo ./cmd/theo
 
-# Final stage
-FROM alpine:latest
+# Create a minimal runtime image
+FROM alpine:3.18
 
-# Install runtime dependencies
-RUN apk add --no-cache ca-certificates
+# Install git (required for git operations)
+RUN apk add --no-cache git
 
 # Set working directory
 WORKDIR /app

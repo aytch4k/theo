@@ -1,85 +1,97 @@
+version: '3.8'
+
 services:
-  # Build service for compiling the application
-  build:
+  # Development environment
+  dev:
     build:
       context: .
       dockerfile: Dockerfile
-    image: theo:latest
     volumes:
-      - ./dist:/app/dist
-    command: ["--help"]
+      - ./data:/app/data
+    command: --cmd help
     environment:
-      - CGO_ENABLED=1
-      - GOOS=linux
-      - GOARCH=amd64
+      - GO_ENV=development
 
-  # Test service for running tests
+  # Run tests
   test:
     build:
       context: .
       dockerfile: Dockerfile.test
     volumes:
       - .:/app
-      - go-modules:/go/pkg/mod
-    command: ["go", "test", "./..."]
     environment:
-      - CGO_ENABLED=1
+      - GO_ENV=test
 
-  # Cross-platform build services
-  build-linux-amd64:
+  # Build cross-platform binaries
+  build:
     build:
       context: .
       dockerfile: Dockerfile.build
     volumes:
-      - ./dist:/app/dist
-    environment:
-      - GOOS=linux
-      - GOARCH=amd64
-      - OUTPUT_NAME=theo-linux-amd64
+      - ./dist:/dist
 
-  build-linux-arm64:
+  # Import a Git repository
+  import-git:
     build:
       context: .
-      dockerfile: Dockerfile.build
+      dockerfile: Dockerfile
     volumes:
-      - ./dist:/app/dist
+      - ./data:/app/data
+    command: --cmd import-git --repo ${REPO_ID:-example} --owner ${OWNER_ID:-owner} --user ${USER_ID:-user} --source ${SOURCE_REPO:-https://github.com/example/repo.git}
     environment:
-      - GOOS=linux
-      - GOARCH=arm64
-      - OUTPUT_NAME=theo-linux-arm64
+      - GO_ENV=production
 
-  build-darwin-amd64:
+  # Export chains
+  export:
     build:
       context: .
-      dockerfile: Dockerfile.build
+      dockerfile: Dockerfile
     volumes:
-      - ./dist:/app/dist
+      - ./data:/app/data
+    command: --cmd export --repo ${REPO_ID:-example} ${JSONL:---jsonl}
     environment:
-      - GOOS=darwin
-      - GOARCH=amd64
-      - OUTPUT_NAME=theo-darwin-amd64
+      - GO_ENV=production
 
-  build-darwin-arm64:
+  # Show repository status
+  status:
     build:
       context: .
-      dockerfile: Dockerfile.build
+      dockerfile: Dockerfile
     volumes:
-      - ./dist:/app/dist
+      - ./data:/app/data
+    command: --cmd status --repo ${REPO_ID:-example}
     environment:
-      - GOOS=darwin
-      - GOARCH=arm64
-      - OUTPUT_NAME=theo-darwin-arm64
+      - GO_ENV=production
 
-  build-windows-amd64:
+  # Add a commit
+  commit:
     build:
       context: .
-      dockerfile: Dockerfile.build
+      dockerfile: Dockerfile
     volumes:
-      - ./dist:/app/dist
+      - ./data:/app/data
+    command: --cmd commit --repo ${REPO_ID:-example} --user ${USER_ID:-user} --message "${MESSAGE:-Commit message}" --branch ${BRANCH:-main}
     environment:
-      - GOOS=windows
-      - GOARCH=amd64
-      - OUTPUT_NAME=theo-windows-amd64.exe
+      - GO_ENV=production
 
-volumes:
-  go-modules:
+  # Add a tag
+  tag:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./data:/app/data
+    command: --cmd tag --repo ${REPO_ID:-example} --user ${USER_ID:-user} --tag-name ${TAG_NAME:-v1.0.0} --message "${MESSAGE:-Tag message}"
+    environment:
+      - GO_ENV=production
+
+  # Record a branch deletion
+  branch-delete:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./data:/app/data
+    command: --cmd branch-delete --repo ${REPO_ID:-example} --user ${USER_ID:-user} --branch ${BRANCH:-feature-branch} --message "${MESSAGE:-Branch deletion reason}"
+    environment:
+      - GO_ENV=production

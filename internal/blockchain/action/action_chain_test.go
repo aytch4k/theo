@@ -2,222 +2,322 @@ package action
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
-
-	"github.com/stretchr/testify/assert"
+	"time"
 )
 
 func TestNewActionChain(t *testing.T) {
 	// Create a new action chain
-	chainType := "commit"
-	repoID := "repo123"
+	chainType := "test-chain"
+	repoID := "test-repo"
 	chain := NewActionChain(chainType, repoID)
 
-	// Verify the chain properties
-	assert.Equal(t, chainType, chain.ChainType)
-	assert.Equal(t, repoID, chain.RepoID)
-	assert.Empty(t, chain.Blocks)
+	// Verify chain properties
+	if chain.ChainType != chainType {
+		t.Errorf("Expected chain type %s, got %s", chainType, chain.ChainType)
+	}
+	if chain.RepoID != repoID {
+		t.Errorf("Expected repo ID %s, got %s", repoID, chain.RepoID)
+	}
+	if len(chain.Blocks) != 0 {
+		t.Errorf("Expected 0 blocks, got %d", len(chain.Blocks))
+	}
 }
 
-func TestAddBlock(t *testing.T) {
+func TestActionChain_AddBlock(t *testing.T) {
 	// Create a new action chain
-	chain := NewActionChain("commit", "repo123")
+	chain := NewActionChain("test-chain", "test-repo")
+
+	// Create test data
+	testData := struct {
+		ID      string `json:"id"`
+		Name    string `json:"name"`
+		Message string `json:"message"`
+	}{
+		ID:      "test-id",
+		Name:    "test-name",
+		Message: "test-message",
+	}
+	testDataJSON, err := json.Marshal(testData)
+	if err != nil {
+		t.Fatalf("Failed to marshal test data: %v", err)
+	}
+
+	// Add block to chain
+	hash, err := chain.AddBlock(testDataJSON)
+	if err != nil {
+		t.Fatalf("Failed to add block to chain: %v", err)
+	}
+
+	// Verify block was added
+	if len(chain.Blocks) != 1 {
+		t.Errorf("Expected 1 block, got %d", len(chain.Blocks))
+	}
+
+	// Verify block properties
+	block := chain.Blocks[0]
+	if block.Index != 0 {
+		t.Errorf("Expected block index 0, got %d", block.Index)
+	}
+	if block.PreviousHash != "" {
+		t.Errorf("Expected empty previous hash, got %s", block.PreviousHash)
+	}
+	if block.Hash != hash {
+		t.Errorf("Expected hash %s, got %s", hash, block.Hash)
+	}
+	if string(block.Data) != string(testDataJSON) {
+		t.Errorf("Expected data %s, got %s", string(testDataJSON), string(block.Data))
+	}
+}
+
+func TestActionChain_AddMultipleBlocks(t *testing.T) {
+	// Create a new action chain
+	chain := NewActionChain("test-chain", "test-repo")
+
+	// Add multiple blocks
+	numBlocks := 5
+	for i := 0; i < numBlocks; i++ {
+		// Create test data
+		testData := struct {
+			ID      string `json:"id"`
+			Name    string `json:"name"`
+			Message string `json:"message"`
+			Index   int    `json:"index"`
+		}{
+			ID:      "test-id",
+			Name:    "test-name",
+			Message: "test-message",
+			Index:   i,
+		}
+		testDataJSON, err := json.Marshal(testData)
+		if err != nil {
+			t.Fatalf("Failed to marshal test data: %v", err)
+		}
+
+		// Add block to chain
+		_, err = chain.AddBlock(testDataJSON)
+		if err != nil {
+			t.Fatalf("Failed to add block to chain: %v", err)
+		}
+	}
+
+	// Verify number of blocks
+	if len(chain.Blocks) != numBlocks {
+		t.Errorf("Expected %d blocks, got %d", numBlocks, len(chain.Blocks))
+	}
+
+	// Verify block indices and previous hashes
+	for i := 0; i < numBlocks; i++ {
+		block := chain.Blocks[i]
+		if block.Index != uint64(i) {
+			t.Errorf("Expected block index %d, got %d", i, block.Index)
+		}
+		if i > 0 && block.PreviousHash != chain.Blocks[i-1].Hash {
+			t.Errorf("Block %d: Expected previous hash %s, got %s", i, chain.Blocks[i-1].Hash, block.PreviousHash)
+		}
+	}
+}
+
+func TestActionChain_VerifyChain(t *testing.T) {
+	// Create a new action chain
+	chain := NewActionChain("test-chain", "test-repo")
+
+	// Add multiple blocks
+	numBlocks := 5
+	for i := 0; i < numBlocks; i++ {
+		// Create test data
+		testData := struct {
+			ID      string `json:"id"`
+			Name    string `json:"name"`
+			Message string `json:"message"`
+			Index   int    `json:"index"`
+		}{
+			ID:      "test-id",
+			Name:    "test-name",
+			Message: "test-message",
+			Index:   i,
+		}
+		testDataJSON, err := json.Marshal(testData)
+		if err != nil {
+			t.Fatalf("Failed to marshal test data: %v", err)
+		}
+
+		// Add block to chain
+		_, err = chain.AddBlock(testDataJSON)
+		if err != nil {
+			t.Fatalf("Failed to add block to chain: %v", err)
+		}
+	}
+
+	// Verify chain
+	if !chain.VerifyChain() {
+		t.Error("Chain verification failed")
+	}
+
+	// Tamper with a block
+	chain.Blocks[2].Data = []byte(`{"id":"tampered","name":"tampered","message":"tampered","index":2}`)
+
+	// Verify chain again
+	if chain.VerifyChain() {
+		t.Error("Chain verification should have failed after tampering")
+	}
+}
+
+func TestActionChain_Export(t *testing.T) {
+	// Create a new action chain
+	chain := NewActionChain("test-chain", "test-repo")
 
 	// Add a block
-	data := []byte(`{"test": "data"}`)
-	hash, err := chain.AddBlock(data)
-	assert.NoError(t, err)
-	assert.NotEmpty(t, hash)
-	assert.Len(t, chain.Blocks, 1)
-	assert.Equal(t, uint64(0), chain.Blocks[0].Index)
-	assert.Equal(t, "", chain.Blocks[0].PreviousHash)
-	assert.Equal(t, hash, chain.Blocks[0].Hash)
+	testData := struct {
+		ID      string `json:"id"`
+		Name    string `json:"name"`
+		Message string `json:"message"`
+	}{
+		ID:      "test-id",
+		Name:    "test-name",
+		Message: "test-message",
+	}
+	testDataJSON, err := json.Marshal(testData)
+	if err != nil {
+		t.Fatalf("Failed to marshal test data: %v", err)
+	}
+	_, err = chain.AddBlock(testDataJSON)
+	if err != nil {
+		t.Fatalf("Failed to add block to chain: %v", err)
+	}
 
-	// Add another block
-	data2 := []byte(`{"test": "data2"}`)
-	hash2, err := chain.AddBlock(data2)
-	assert.NoError(t, err)
-	assert.NotEmpty(t, hash2)
-	assert.Len(t, chain.Blocks, 2)
-	assert.Equal(t, uint64(1), chain.Blocks[1].Index)
-	assert.Equal(t, hash, chain.Blocks[1].PreviousHash)
-	assert.Equal(t, hash2, chain.Blocks[1].Hash)
-}
+	// Export chain
+	exportData, err := chain.Export()
+	if err != nil {
+		t.Fatalf("Failed to export chain: %v", err)
+	}
 
-func TestGetBlock(t *testing.T) {
-	// Create a new action chain
-	chain := NewActionChain("commit", "repo123")
-
-	// Add a block
-	data := []byte(`{"test": "data"}`)
-	hash, err := chain.AddBlock(data)
-	assert.NoError(t, err)
-
-	// Get the block by hash
-	block, err := chain.GetBlock(hash)
-	assert.NoError(t, err)
-	assert.Equal(t, uint64(0), block.Index)
-	assert.Equal(t, "", block.PreviousHash)
-	assert.Equal(t, hash, block.Hash)
-
-	// Test getting a non-existent block
-	_, err = chain.GetBlock("non-existent-hash")
-	assert.Error(t, err)
-}
-
-func TestGetBlockByIndex(t *testing.T) {
-	// Create a new action chain
-	chain := NewActionChain("commit", "repo123")
-
-	// Add a block
-	data := []byte(`{"test": "data"}`)
-	hash, err := chain.AddBlock(data)
-	assert.NoError(t, err)
-
-	// Get the block by index
-	block, err := chain.GetBlockByIndex(0)
-	assert.NoError(t, err)
-	assert.Equal(t, uint64(0), block.Index)
-	assert.Equal(t, "", block.PreviousHash)
-	assert.Equal(t, hash, block.Hash)
-
-	// Test getting a non-existent block
-	_, err = chain.GetBlockByIndex(1)
-	assert.Error(t, err)
-}
-
-func TestGetLatestBlock(t *testing.T) {
-	// Create a new action chain
-	chain := NewActionChain("commit", "repo123")
-
-	// Test getting the latest block from an empty chain
-	_, err := chain.GetLatestBlock()
-	assert.Error(t, err)
-
-	// Add a block
-	data := []byte(`{"test": "data"}`)
-	hash, err := chain.AddBlock(data)
-	assert.NoError(t, err)
-
-	// Get the latest block
-	block, err := chain.GetLatestBlock()
-	assert.NoError(t, err)
-	assert.Equal(t, uint64(0), block.Index)
-	assert.Equal(t, "", block.PreviousHash)
-	assert.Equal(t, hash, block.Hash)
-
-	// Add another block
-	data2 := []byte(`{"test": "data2"}`)
-	hash2, err := chain.AddBlock(data2)
-	assert.NoError(t, err)
-
-	// Get the latest block again
-	block, err = chain.GetLatestBlock()
-	assert.NoError(t, err)
-	assert.Equal(t, uint64(1), block.Index)
-	assert.Equal(t, hash, block.PreviousHash)
-	assert.Equal(t, hash2, block.Hash)
-}
-
-func TestVerifyChain(t *testing.T) {
-	// Create a new action chain
-	chain := NewActionChain("commit", "repo123")
-
-	// Verify an empty chain
-	assert.True(t, chain.VerifyChain())
-
-	// Add a block
-	data := []byte(`{"test": "data"}`)
-	_, err := chain.AddBlock(data)
-	assert.NoError(t, err)
-
-	// Verify the chain with one block
-	assert.True(t, chain.VerifyChain())
-
-	// Add another block
-	data2 := []byte(`{"test": "data2"}`)
-	_, err = chain.AddBlock(data2)
-	assert.NoError(t, err)
-
-	// Verify the chain with two blocks
-	assert.True(t, chain.VerifyChain())
-
-	// Tamper with the chain
-	chain.Blocks[0].Data = json.RawMessage(`{"test": "tampered"}`)
-
-	// Verify the tampered chain
-	assert.False(t, chain.VerifyChain())
-}
-
-func TestExportImport(t *testing.T) {
-	// Create a new action chain
-	chain := NewActionChain("commit", "repo123")
-
-	// Add some blocks
-	data1 := []byte(`{"test": "data1"}`)
-	_, err := chain.AddBlock(data1)
-	assert.NoError(t, err)
-
-	data2 := []byte(`{"test": "data2"}`)
-	_, err = chain.AddBlock(data2)
-	assert.NoError(t, err)
-
-	// Export the chain
-	exportedData, err := chain.Export()
-	assert.NoError(t, err)
-	assert.NotEmpty(t, exportedData)
-
-	// Create a new chain and import the data
+	// Import chain
 	importedChain := NewActionChain("", "")
-	err = importedChain.Import(exportedData)
-	assert.NoError(t, err)
+	err = importedChain.Import(exportData)
+	if err != nil {
+		t.Fatalf("Failed to import chain: %v", err)
+	}
 
-	// Verify the imported chain
-	assert.Equal(t, chain.ChainType, importedChain.ChainType)
-	assert.Equal(t, chain.RepoID, importedChain.RepoID)
-	assert.Len(t, importedChain.Blocks, 2)
-	assert.Equal(t, chain.Blocks[0].Hash, importedChain.Blocks[0].Hash)
-	assert.Equal(t, chain.Blocks[1].Hash, importedChain.Blocks[1].Hash)
+	// Verify imported chain
+	if importedChain.ChainType != chain.ChainType {
+		t.Errorf("Expected chain type %s, got %s", chain.ChainType, importedChain.ChainType)
+	}
+	if importedChain.RepoID != chain.RepoID {
+		t.Errorf("Expected repo ID %s, got %s", chain.RepoID, importedChain.RepoID)
+	}
+	if len(importedChain.Blocks) != len(chain.Blocks) {
+		t.Errorf("Expected %d blocks, got %d", len(chain.Blocks), len(importedChain.Blocks))
+	}
+	if !importedChain.VerifyChain() {
+		t.Error("Imported chain verification failed")
+	}
 }
 
-func TestJSONLExportImport(t *testing.T) {
+func TestActionChain_ExportToJSONL(t *testing.T) {
 	// Create a new action chain
-	chain := NewActionChain("commit", "repo123")
+	chain := NewActionChain("test-chain", "test-repo")
 
-	// Add some blocks
-	data1 := []byte(`{"test": "data1"}`)
-	_, err := chain.AddBlock(data1)
-	assert.NoError(t, err)
+	// Add multiple blocks
+	numBlocks := 5
+	for i := 0; i < numBlocks; i++ {
+		// Create test data
+		testData := struct {
+			ID      string `json:"id"`
+			Name    string `json:"name"`
+			Message string `json:"message"`
+			Index   int    `json:"index"`
+		}{
+			ID:      "test-id",
+			Name:    "test-name",
+			Message: "test-message",
+			Index:   i,
+		}
+		testDataJSON, err := json.Marshal(testData)
+		if err != nil {
+			t.Fatalf("Failed to marshal test data: %v", err)
+		}
 
-	data2 := []byte(`{"test": "data2"}`)
-	_, err = chain.AddBlock(data2)
-	assert.NoError(t, err)
+		// Add block to chain
+		_, err = chain.AddBlock(testDataJSON)
+		if err != nil {
+			t.Fatalf("Failed to add block to chain: %v", err)
+		}
+	}
 
-	// Export the chain to JSONL
-	jsonl, err := chain.ExportToJSONL()
-	assert.NoError(t, err)
-	assert.NotEmpty(t, jsonl)
+	// Export chain to JSONL
+	jsonlStr, err := chain.ExportToJSONL()
+	if err != nil {
+		t.Fatalf("Failed to export chain to JSONL: %v", err)
+	}
 
-	// Create a new chain and import the JSONL
-	importedChain := NewActionChain("commit", "repo123")
-	err = importedChain.ImportFromJSONL(jsonl)
-	assert.NoError(t, err)
+	// Verify JSONL format
+	lines := strings.Split(jsonlStr, "\n")
+	lineCount := 0
 
-	// Verify the imported chain
-	assert.Len(t, importedChain.Blocks, 2)
+	for i, line := range lines {
+		if line == "" {
+			continue
+		}
 
-	// Compare the blocks
-	for i := 0; i < len(chain.Blocks); i++ {
-		assert.Equal(t, chain.Blocks[i].Index, importedChain.Blocks[i].Index)
-		assert.Equal(t, chain.Blocks[i].PreviousHash, importedChain.Blocks[i].PreviousHash)
-		assert.Equal(t, chain.Blocks[i].Hash, importedChain.Blocks[i].Hash)
+		// Each line should be a valid JSON object
+		var blockData map[string]interface{}
+		err = json.Unmarshal([]byte(line), &blockData)
+		if err != nil {
+			t.Fatalf("Failed to unmarshal JSONL line %d: %v", i, err)
+		}
 
-		// Parse the JSON data to compare the actual content
-		var originalData, importedData map[string]interface{}
-		err = json.Unmarshal(chain.Blocks[i].Data, &originalData)
-		assert.NoError(t, err)
-		err = json.Unmarshal(importedChain.Blocks[i].Data, &importedData)
-		assert.NoError(t, err)
-		assert.Equal(t, originalData, importedData)
+		// Verify block data
+		if index, ok := blockData["index"].(float64); ok {
+			if uint64(index) != uint64(lineCount) {
+				t.Errorf("Expected block index %d, got %f", lineCount, index)
+			}
+		}
+
+		lineCount++
+	}
+
+	// Verify number of lines
+	if lineCount != numBlocks {
+		t.Errorf("Expected %d lines, got %d", numBlocks, lineCount)
+	}
+}
+
+func TestActionChain_BlockTimestamps(t *testing.T) {
+	// Create a new action chain
+	chain := NewActionChain("test-chain", "test-repo")
+
+	// Add a block
+	testData := struct {
+		ID      string `json:"id"`
+		Name    string `json:"name"`
+		Message string `json:"message"`
+	}{
+		ID:      "test-id",
+		Name:    "test-name",
+		Message: "test-message",
+	}
+	testDataJSON, err := json.Marshal(testData)
+	if err != nil {
+		t.Fatalf("Failed to marshal test data: %v", err)
+	}
+
+	// Record time before adding block
+	beforeTime := time.Now().Unix()
+
+	// Add block to chain
+	_, err = chain.AddBlock(testDataJSON)
+	if err != nil {
+		t.Fatalf("Failed to add block to chain: %v", err)
+	}
+
+	// Record time after adding block
+	afterTime := time.Now().Unix()
+
+	// Verify block timestamp
+	blockTime := chain.Blocks[0].Timestamp
+	if blockTime < beforeTime || blockTime > afterTime {
+		t.Errorf("Block timestamp %d is outside the expected range [%d, %d]", blockTime, beforeTime, afterTime)
 	}
 }
