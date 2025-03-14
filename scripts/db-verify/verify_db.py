@@ -91,7 +91,8 @@ def verify_ipfs():
     """Verify IPFS node."""
     print_header("IPFS Verification")
     
-    host = os.environ.get("IPFS_HOST", "ipfs")
+    # Use ipfs-node as the hostname to match the container_name in docker-compose-db-verify.yml
+    host = os.environ.get("IPFS_HOST", "ipfs-node")
     port = os.environ.get("IPFS_PORT", "5001")
     protocol = os.environ.get("IPFS_PROTOCOL", "http")
     gateway_port = "8080"  # IPFS gateway port

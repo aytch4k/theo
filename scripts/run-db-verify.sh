@@ -22,11 +22,9 @@ sleep 15
 echo "Running database verification..."
 docker-compose -f docker-compose-db-verify.yml logs -f db-verify
 
-# Clean up
-echo "Cleaning up..."
-docker-compose -f docker-compose-db-verify.yml down
-
 # Print success message
 echo "====================================="
 echo " Database verification complete!"
 echo "====================================="
+echo "Docker containers are still running. To stop them later, run:"
+echo "docker-compose -f docker-compose-db-verify.yml down"

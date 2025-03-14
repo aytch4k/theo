@@ -16,7 +16,7 @@ services:
       - AEROSPIKE_HOST=aerospike
       - AEROSPIKE_PORT=3000
       - AEROSPIKE_NAMESPACE=theo
-      - IPFS_HOST=ipfs
+      - IPFS_HOST=ipfs-node
       - IPFS_PORT=5001
       - IPFS_PROTOCOL=http
     networks:
@@ -44,6 +44,7 @@ services:
   # IPFS
   ipfs:
     image: ipfs/kubo:latest
+    container_name: ipfs-node
     ports:
       - "4001:4001"
       - "5001:5001"
@@ -52,6 +53,7 @@ services:
       - ipfs-data:/data/ipfs
     environment:
       - IPFS_PROFILE=server
+      - IPFS_PATH=/data/ipfs
     healthcheck:
       test: ["CMD", "ipfs", "id"]
       interval: 10s

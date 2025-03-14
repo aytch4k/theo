@@ -14,7 +14,6 @@ services:
     environment:
       - IPFS_PROFILE=server
       - IPFS_PATH=/data/ipfs
-    # No custom command - use the default entrypoint
 
 volumes:
   ipfs-data:
