@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Theo IndexedDB Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 {
+            color: #333;
+        }
+        .result {
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        pre {
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0069d9;
+        }
+    </style>
+</head>
+<body>
+    <h1>Theo IndexedDB Test</h1>
+    <p>This page tests the IndexedDB storage backend for the Theo blockchain.</p>
+    
+    <button id="runTests">Run Tests</button>
+    
+    <div id="results"></div>
+    
+    <script>
+        // Test data
+        const chainType = "verify-test";
+        const repoID = "verify-repo";
+        const testBlock = {
+            context: "https://devhub-git.org/contexts/block.jsonld",
+            id: `chain://${chainType}/${repoID}/block0`,
+            index: 0,
+            timestamp: Date.now(),
+            data: JSON.stringify({
+                message: "Test block 0",
+                time: new Date().toISOString()
+            }),
+            previousHash: "",
+            hash: "test-hash-" + Date.now()
+        };
+        
+        // Helper function to log results
+        function logResult(message, isSuccess = true) {
+            const resultDiv = document.createElement('div');
+            resultDiv.className = `result ${isSuccess ? 'success' : 'error'}`;
+            resultDiv.textContent = message;
+            document.getElementById('results').appendChild(resultDiv);
+        }
+        
+        // Helper function to log objects
+        function logObject(obj) {
+            const pre = document.createElement('pre');
+            pre.textContent = JSON.stringify(obj, null, 2);
+            document.getElementById('results').appendChild(pre);
+        }
+        
+        // IndexedDB test function
+        async function testIndexedDB() {
+            document.getElementById('results').innerHTML = '';
+            logResult("Starting IndexedDB tests...");
+            
+            try {
+                // Open database
+                const dbName = "TheoBlockchainDB";
+                const dbVersion = 1;
+                
+                logResult("Opening IndexedDB database...");
+                const openRequest = indexedDB.open(dbName, dbVersion);
+                
+                openRequest.onupgradeneeded = function(event) {
+                    const db = event.target.result;
+                    
+                    // Create object stores if they don't exist
+                    if (!db.objectStoreNames.contains("blocks")) {
+                        const blocksStore = db.createObjectStore("blocks", { keyPath: "id" });
+                        blocksStore.createIndex("byChainAndRepo", ["chainType", "repoID"], { unique: false });
+                        blocksStore.createIndex("byHash", "hash", { unique: true });
+                    }
+                    
+                    if (!db.objectStoreNames.contains("chains")) {
+                        const chainsStore = db.createObjectStore("chains", { keyPath: ["chainType", "repoID"] });
+                    }
+                    
+                    logResult("Database schema created");
+                };
+                
+                const db = await new Promise((resolve, reject) => {
+                    openRequest.onsuccess = function(event) {
+                        resolve(event.target.result);
+                    };
+                    
+                    openRequest.onerror = function(event) {
+                        reject("Error opening database: " + event.target.error);
+                    };
+                });
+                
+                logResult("Database opened successfully");
+                
+                // Add test block with chainType and repoID
+                const blockWithMeta = {
+                    ...testBlock,
+                    chainType,
+                    repoID
+                };
+                
+                // Save block
+                const saveResult = await new Promise((resolve, reject) => {
+                    const transaction = db.transaction(["blocks"], "readwrite");
+                    const blocksStore = transaction.objectStore("blocks");
+                    
+                    const request = blocksStore.put(blockWithMeta);
+                    
+                    request.onsuccess = function() {
+                        resolve("Block saved with ID: " + request.result);
+                    };
+                    
+                    request.onerror = function() {
+                        reject("Error saving block: " + request.error);
+                    };
+                });
+                
+                logResult("Block saved: " + saveResult);
+                
+                // Retrieve block
+                const retrievedBlock = await new Promise((resolve, reject) => {
+                    const transaction = db.transaction(["blocks"], "readonly");
+                    const blocksStore = transaction.objectStore("blocks");
+                    
+                    const request = blocksStore.get(blockWithMeta.id);
+                    
+                    request.onsuccess = function() {
+                        resolve(request.result);
+                    };
+                    
+                    request.onerror = function() {
+                        reject("Error retrieving block: " + request.error);
+                    };
+                });
+                
+                logResult("Block retrieved successfully");
+                logObject(retrievedBlock);
+                
+                // Verify block
+                if (retrievedBlock.hash === blockWithMeta.hash) {
+                    logResult("Block hash verified");
+                } else {
+                    logResult(`Block hash mismatch: expected ${blockWithMeta.hash}, got ${retrievedBlock.hash}`, false);
+                }
+                
+                // Delete block
+                await new Promise((resolve, reject) => {
+                    const transaction = db.transaction(["blocks"], "readwrite");
+                    const blocksStore = transaction.objectStore("blocks");
+                    
+                    const request = blocksStore.delete(blockWithMeta.id);
+                    
+                    request.onsuccess = function() {
+                        resolve();
+                    };
+                    
+                    request.onerror = function() {
+                        reject("Error deleting block: " + request.error);
+                    };
+                });
+                
+                logResult("Block deleted successfully");
+                
+                // Close database
+                db.close();
+                logResult("Database closed");
+                
+                logResult("All IndexedDB tests completed successfully!");
+                
+            } catch (error) {
+                logResult("Error in IndexedDB tests: " + error, false);
+            }
+        }
+        
+        // Add event listener to run tests button
+        document.getElementById('runTests').addEventListener('click', testIndexedDB);
+    </script>
+</body>
+</html>

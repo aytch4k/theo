@@ -1,7 +1,24 @@
 version: '3.8'
 
 services:
-  # SQLite doesn't need a container as it's embedded
+  verify:
+    build:
+      context: .
+      dockerfile: Dockerfile.verify
+    depends_on:
+      - aerospike
+      - ipfs
+    volumes:
+      - ./:/app
+    environment:
+      - AEROSPIKE_HOST=aerospike
+      - AEROSPIKE_PORT=3000
+      - AEROSPIKE_NAMESPACE=theo
+      - IPFS_HOST=ipfs
+      - IPFS_PORT=5001
+      - IPFS_PROTOCOL=http
+    networks:
+      - default
 
   # Aerospike
   aerospike:
@@ -19,6 +36,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
+    networks:
+      - default
 
   # IPFS
   ipfs:
@@ -36,6 +55,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
+    networks:
+      - default
 
   # IndexedDB doesn't need a container as it's browser-based
   # But we can add a simple web server to serve test pages
@@ -50,25 +71,11 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
+    networks:
+      - default
 
-  # Theo verification service
-  theo-verify:
-    build:
-      context: .
-      dockerfile: Dockerfile.test
-    depends_on:
-      - aerospike
-      - ipfs
-    volumes:
-      - ./:/app
-    environment:
-      - AEROSPIKE_HOST=aerospike
-      - AEROSPIKE_PORT=3000
-      - AEROSPIKE_NAMESPACE=theo
-      - IPFS_HOST=ipfs
-      - IPFS_PORT=5001
-      - IPFS_PROTOCOL=http
-    command: ["go", "run", "/app/scripts/verify-storage.go"]
+networks:
+  default:
 
 volumes:
   aerospike-data:

@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  # IPFS node configuration following official documentation
+  ipfs:
+    image: ipfs/kubo:latest
+    container_name: ipfs-node
+    ports:
+      - "4001:4001"  # Swarm port
+      - "5001:5001"  # API port
+      - "8080:8080"  # Gateway port
+    volumes:
+      - ipfs-data:/data/ipfs
+    environment:
+      - IPFS_PROFILE=server
+      - IPFS_PATH=/data/ipfs
+    # No custom command - use the default entrypoint
+
+volumes:
+  ipfs-data:

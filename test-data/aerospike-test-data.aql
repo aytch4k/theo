@@ -1,0 +1,2 @@
+INSERT INTO theo.test (PK, chain_type, repo_id, block_hash, block_index, data)
+VALUES ('test-chain:test-repo:block0', 'test-chain', 'test-repo', '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef', 0, '{"message":"Test data for Aerospike storage","timestamp":1710425600,"index":0}')

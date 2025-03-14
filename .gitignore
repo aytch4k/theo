@@ -8,3 +8,4 @@
 /test/test-data
 test-data/sqlite-storage-verify.db
 test-data/file-storage-verify/cid_mapping.json
+/test-data/file-storage-verify

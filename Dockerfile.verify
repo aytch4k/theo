@@ -1,5 +1,9 @@
-FROM golang:1.21-alpine
+FROM golang:1.20-alpine
 
+# Install dependencies
+RUN apk add --no-cache git make gcc libc-dev curl jq sqlite
+
+# Set working directory
 WORKDIR /app
 
 # Copy go.mod and go.sum
@@ -8,8 +12,21 @@ COPY go.mod go.sum ./
 # Download dependencies
 RUN go mod download
 
-# Copy the source code
+# Copy the rest of the code
 COPY . .
 
-# Set the entrypoint to run the script directly
-ENTRYPOINT ["go", "run", "./scripts/verify-storage.go"]
+# Set environment variables
+ENV CGO_ENABLED=1
+ENV GO111MODULE=on
+ENV AEROSPIKE_HOST=aerospike
+ENV AEROSPIKE_PORT=3000
+ENV AEROSPIKE_NAMESPACE=theo
+ENV IPFS_HOST=ipfs
+ENV IPFS_PORT=5001
+ENV IPFS_PROTOCOL=http
+
+# Build the verification program
+RUN go build -o verify-storage ./cmd/verify-storage/main.go
+
+# Default command
+CMD ["./verify-storage"]
