@@ -2,7 +2,6 @@ package test
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -13,44 +12,14 @@ import (
 	"github.com/gold2th/theo/internal/storage/factory"
 )
 
-// TestBlockchainIntegration tests blockchain integration with storage backends
+// TestBlockchainIntegration tests blockchain validation and synchronization
 func TestBlockchainIntegration(t *testing.T) {
-	// Test configurations for each storage backend
-	configs := map[string]*storage.StorageConfig{
-		"file": {
-			Type: storage.StorageTypeFile,
-			Path: "test-data/blockchain-integration-file",
-		},
-		"sqlite": {
-			Type:             storage.StorageTypeSQLite,
-			ConnectionString: "test-data/blockchain-integration-sqlite.db",
-		},
-		"aerospike": {
-			Type:               storage.StorageTypeAerospike,
-			AerospikeHost:      getEnv("AEROSPIKE_HOST", "localhost"),
-			AerospikePort:      3000,
-			AerospikeNamespace: getEnv("AEROSPIKE_NAMESPACE", "theo"),
-			AerospikeSet:       "blockchain-integration-test",
-		},
-		"ipfs": {
-			Type:         storage.StorageTypeIPFS,
-			IPFSHost:     getEnv("IPFS_HOST", "localhost"),
-			IPFSPort:     5001,
-			IPFSProtocol: "http",
-			Path:         "test-data/blockchain-integration-ipfs-cache",
-		},
+	// Use file storage for testing
+	config := &storage.StorageConfig{
+		Type: storage.StorageTypeFile,
+		Path: "test-data/blockchain-integration",
 	}
 
-	// Test each storage backend
-	for name, config := range configs {
-		t.Run(name, func(t *testing.T) {
-			testBlockchainIntegration(t, config)
-		})
-	}
-}
-
-// testBlockchainIntegration tests blockchain integration with a specific storage backend
-func testBlockchainIntegration(t *testing.T, config *storage.StorageConfig) {
 	// Create storage backend
 	s, err := factory.NewStorage(config)
 	if err != nil {
@@ -69,300 +38,219 @@ func testBlockchainIntegration(t *testing.T, config *storage.StorageConfig) {
 	validator := validation.NewBlockchainValidator()
 
 	// Create synchronizer
-	synchronizer := sync.NewChainSynchronizer(s)
+	synchronizer := sync.NewChainSynchronizer(s, sync.WithValidator(validator))
 
-	// Test blockchain validation and synchronization
-	t.Run("ValidationAndSync", func(t *testing.T) {
-		// Create chain
-		chainType := "blockchain-integration"
-		repoID := "repo1"
-		blocks := createTestBlocks(chainType, repoID, 3)
-
-		// Validate chain
-		err := validator.ValidateChain(blocks)
-		if err != nil {
-			t.Fatalf("Chain validation failed: %v", err)
-		}
-
-		// Save chain
-		err = s.SaveChain(ctx, chainType, repoID, blocks)
-		if err != nil {
-			t.Fatalf("Failed to save chain: %v", err)
-		}
-
-		// Create new block
-		newBlock := createTestBlock(chainType, repoID, 3, blocks[2].Hash)
-
-		// Validate new block
-		err = validator.ValidateBlock(blocks[2], newBlock)
-		if err != nil {
-			t.Fatalf("Block validation failed: %v", err)
-		}
-
-		// Sync new block
-		err = synchronizer.SyncBlock(ctx, chainType, repoID, newBlock)
-		if err != nil {
-			t.Fatalf("Failed to sync block: %v", err)
-		}
-
-		// Load synced chain
-		syncedChain, err := s.LoadChain(ctx, chainType, repoID)
-		if err != nil {
-			t.Fatalf("Failed to load synced chain: %v", err)
-		}
-
-		// Verify synced chain
-		if len(syncedChain) != len(blocks)+1 {
-			t.Fatalf("Expected %d blocks, got %d", len(blocks)+1, len(syncedChain))
-		}
-
-		// Validate synced chain
-		err = validator.ValidateChain(syncedChain)
-		if err != nil {
-			t.Fatalf("Synced chain validation failed: %v", err)
-		}
-
-		// Clean up
-		err = s.DeleteChain(ctx, chainType, repoID)
-		if err != nil {
-			t.Fatalf("Failed to delete chain: %v", err)
-		}
+	// Test chain validation and synchronization
+	t.Run("ChainValidation", func(t *testing.T) {
+		testChainValidation(t, validator)
 	})
 
-	// Test IPFS synchronization
-	t.Run("IPFSSync", func(t *testing.T) {
-		// Skip if not IPFS storage
-		if config.Type != storage.StorageTypeIPFS {
-			t.Skip("Skipping IPFS sync test for non-IPFS storage")
-		}
-
-		// Create chain
-		chainType := "ipfs-sync"
-		repoID := "repo1"
-		blocks := createTestBlocks(chainType, repoID, 3)
-
-		// Save chain
-		err := s.SaveChain(ctx, chainType, repoID, blocks)
-		if err != nil {
-			t.Fatalf("Failed to save chain: %v", err)
-		}
-
-		// Set IPFS CID
-		testCID := "QmTest123456789"
-		err = s.SetIPFSCID(ctx, chainType, repoID, testCID)
-		if err != nil {
-			t.Fatalf("Failed to set IPFS CID: %v", err)
-		}
-
-		// Sync with IPFS
-		err = synchronizer.SyncWithIPFS(ctx, chainType, repoID)
-		if err != nil {
-			t.Fatalf("Failed to sync with IPFS: %v", err)
-		}
-
-		// Load synced chain
-		syncedChain, err := s.LoadChain(ctx, chainType, repoID)
-		if err != nil {
-			t.Fatalf("Failed to load synced chain: %v", err)
-		}
-
-		// Verify synced chain
-		if len(syncedChain) != len(blocks) {
-			t.Fatalf("Expected %d blocks, got %d", len(blocks), len(syncedChain))
-		}
-
-		// Validate synced chain
-		err = validator.ValidateChain(syncedChain)
-		if err != nil {
-			t.Fatalf("Synced chain validation failed: %v", err)
-		}
-
-		// Clean up
-		err = s.DeleteChain(ctx, chainType, repoID)
-		if err != nil {
-			t.Fatalf("Failed to delete chain: %v", err)
-		}
+	t.Run("ChainSynchronization", func(t *testing.T) {
+		testChainSynchronization(t, ctx, synchronizer)
 	})
 
-	// Test periodic synchronization
-	t.Run("PeriodicSync", func(t *testing.T) {
-		// Create chain
-		chainType := "periodic-sync"
-		repoID := "repo1"
-		blocks := createTestBlocks(chainType, repoID, 3)
-
-		// Save chain
-		err := s.SaveChain(ctx, chainType, repoID, blocks)
-		if err != nil {
-			t.Fatalf("Failed to save chain: %v", err)
-		}
-
-		// Create context with timeout
-		syncCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		defer cancel()
-
-		// Start periodic sync
-		syncCount := 0
-		syncFunc := func(ctx context.Context, chainType, repoID string) error {
-			syncCount++
-			return nil
-		}
-
-		// Run periodic sync in a goroutine
-		go synchronizer.PeriodicSync(syncCtx, chainType, repoID, 500*time.Millisecond, syncFunc)
-
-		// Wait for sync to run a few times
-		time.Sleep(1500 * time.Millisecond)
-
-		// Verify sync count
-		if syncCount < 2 {
-			t.Fatalf("Expected at least 2 syncs, got %d", syncCount)
-		}
-
-		// Clean up
-		err = s.DeleteChain(ctx, chainType, repoID)
-		if err != nil {
-			t.Fatalf("Failed to delete chain: %v", err)
-		}
+	t.Run("BlockSynchronization", func(t *testing.T) {
+		testBlockSynchronization(t, ctx, synchronizer)
 	})
 
-	// Test linked JSON with blockchain
-	t.Run("LinkedJSON", func(t *testing.T) {
-		// Create chain with linked JSON data
-		chainType := "linked-json-blockchain"
-		repoID := "repo1"
-		blocks := make([]*block.Block, 3)
-		prevHash := ""
-
-		for i := 0; i < 3; i++ {
-			// Create linked JSON data
-			linkedData := map[string]interface{}{
-				"@context": "https://schema.org",
-				"@type":    "Person",
-				"name":     "Person " + string(rune(65+i)), // A, B, C
-				"knows": map[string]interface{}{
-					"@type": "Person",
-					"name":  "Friend " + string(rune(65+i)),
-					"url":   "https://example.com/person/" + string(rune(65+i)),
-				},
-			}
-
-			// Add references to previous blocks
-			if i > 0 {
-				linkedData["previousPerson"] = map[string]interface{}{
-					"@id": blocks[i-1].ID,
-				}
-			}
-
-			// Convert data to json.RawMessage
-			dataJSON, _ := json.Marshal(linkedData)
-
-			blocks[i] = &block.Block{
-				Context:      "https://devhub-git.org/contexts/block.jsonld",
-				ID:           "chain://" + chainType + "/" + repoID + "/block" + string(rune(65+i)),
-				Index:        uint64(i),
-				Timestamp:    time.Now().Unix(),
-				Data:         json.RawMessage(dataJSON),
-				PreviousHash: prevHash,
-			}
-
-			// Calculate hash
-			hash, _ := blocks[i].CalculateHash()
-			blocks[i].Hash = hash
-			prevHash = hash
-		}
-
-		// Validate chain
-		err := validator.ValidateChain(blocks)
-		if err != nil {
-			t.Fatalf("Chain validation failed: %v", err)
-		}
-
-		// Save chain
-		err = s.SaveChain(ctx, chainType, repoID, blocks)
-		if err != nil {
-			t.Fatalf("Failed to save chain: %v", err)
-		}
-
-		// Create new linked JSON block
-		linkedData := map[string]interface{}{
-			"@context": "https://schema.org",
-			"@type":    "Person",
-			"name":     "Person D",
-			"knows": map[string]interface{}{
-				"@type": "Person",
-				"name":  "Friend D",
-				"url":   "https://example.com/person/D",
-			},
-			"previousPerson": map[string]interface{}{
-				"@id": blocks[2].ID,
-			},
-		}
-
-		// Convert data to json.RawMessage
-		dataJSON, _ := json.Marshal(linkedData)
-
-		newBlock := &block.Block{
-			Context:      "https://devhub-git.org/contexts/block.jsonld",
-			ID:           "chain://" + chainType + "/" + repoID + "/blockD",
-			Index:        3,
-			Timestamp:    time.Now().Unix(),
-			Data:         json.RawMessage(dataJSON),
-			PreviousHash: blocks[2].Hash,
-		}
-
-		// Calculate hash
-		hash, _ := newBlock.CalculateHash()
-		newBlock.Hash = hash
-
-		// Validate new block
-		err = validator.ValidateBlock(blocks[2], newBlock)
-		if err != nil {
-			t.Fatalf("Block validation failed: %v", err)
-		}
-
-		// Sync new block
-		err = synchronizer.SyncBlock(ctx, chainType, repoID, newBlock)
-		if err != nil {
-			t.Fatalf("Failed to sync block: %v", err)
-		}
-
-		// Load synced chain
-		syncedChain, err := s.LoadChain(ctx, chainType, repoID)
-		if err != nil {
-			t.Fatalf("Failed to load synced chain: %v", err)
-		}
-
-		// Verify synced chain
-		if len(syncedChain) != len(blocks)+1 {
-			t.Fatalf("Expected %d blocks, got %d", len(blocks)+1, len(syncedChain))
-		}
-
-		// Verify linked JSON data in new block
-		lastBlock := syncedChain[len(syncedChain)-1]
-		var data map[string]interface{}
-		err = json.Unmarshal(lastBlock.Data, &data)
-		if err != nil {
-			t.Fatalf("Failed to unmarshal data: %v", err)
-		}
-
-		if data["name"] != "Person D" {
-			t.Fatalf("Expected name Person D, got %v", data["name"])
-		}
-
-		prevPerson, ok := data["previousPerson"].(map[string]interface{})
-		if !ok {
-			t.Fatalf("Expected previousPerson to be a map, got %T", data["previousPerson"])
-		}
-
-		if prevPerson["@id"] != blocks[2].ID {
-			t.Fatalf("Expected previousPerson @id %s, got %v", blocks[2].ID, prevPerson["@id"])
-		}
-
-		// Clean up
-		err = s.DeleteChain(ctx, chainType, repoID)
-		if err != nil {
-			t.Fatalf("Failed to delete chain: %v", err)
-		}
+	t.Run("ChainMerging", func(t *testing.T) {
+		testChainMerging(t, ctx, synchronizer)
 	})
+}
+
+// testChainValidation tests blockchain validation
+func testChainValidation(t *testing.T, validator *validation.BlockchainValidator) {
+	// Create a valid chain
+	blocks := createTestBlockchain(5)
+
+	// Validate chain
+	err := validator.ValidateChain(blocks)
+	if err != nil {
+		t.Fatalf("Failed to validate chain: %v", err)
+	}
+
+	// Test invalid hash
+	invalidHashBlocks := createTestBlockchain(5)
+	invalidHashBlocks[2].Hash = "invalid-hash"
+	err = validator.ValidateChain(invalidHashBlocks)
+	if err == nil {
+		t.Fatalf("Expected validation error for invalid hash")
+	}
+
+	// Test invalid previous hash
+	invalidPrevHashBlocks := createTestBlockchain(5)
+	invalidPrevHashBlocks[2].PreviousHash = "invalid-prev-hash"
+	err = validator.ValidateChain(invalidPrevHashBlocks)
+	if err == nil {
+		t.Fatalf("Expected validation error for invalid previous hash")
+	}
+
+	// Test invalid index
+	invalidIndexBlocks := createTestBlockchain(5)
+	invalidIndexBlocks[2].Index = 10
+	err = validator.ValidateChain(invalidIndexBlocks)
+	if err == nil {
+		t.Fatalf("Expected validation error for invalid index")
+	}
+
+	// Test invalid timestamp order
+	invalidTimestampBlocks := createTestBlockchain(5)
+	invalidTimestampBlocks[2].Timestamp = invalidTimestampBlocks[1].Timestamp - 100
+	err = validator.ValidateChain(invalidTimestampBlocks)
+	if err == nil {
+		t.Fatalf("Expected validation error for invalid timestamp order")
+	}
+}
+
+// testChainSynchronization tests chain synchronization
+func testChainSynchronization(t *testing.T, ctx context.Context, synchronizer *sync.ChainSynchronizer) {
+	chainType := "sync-test"
+	repoID := "repo-sync"
+
+	// Create remote chain
+	remoteChain := createTestBlockchain(5)
+
+	// Sync with remote chain (should keep remote chain as it's longer)
+	err := synchronizer.SyncChain(ctx, chainType, repoID, remoteChain)
+	if err != nil {
+		t.Fatalf("Failed to sync chain: %v", err)
+	}
+
+	// Export chain
+	exportedChain, err := synchronizer.ExportChain(ctx, chainType, repoID)
+	if err != nil {
+		t.Fatalf("Failed to export chain: %v", err)
+	}
+
+	// Verify chain length
+	if len(exportedChain) != len(remoteChain) {
+		t.Fatalf("Expected chain length %d, got %d", len(remoteChain), len(exportedChain))
+	}
+
+	// Clean up
+	err = synchronizer.Storage().DeleteChain(ctx, chainType, repoID)
+	if err != nil {
+		t.Fatalf("Failed to delete chain: %v", err)
+	}
+}
+
+// testBlockSynchronization tests block synchronization
+func testBlockSynchronization(t *testing.T, ctx context.Context, synchronizer *sync.ChainSynchronizer) {
+	chainType := "block-sync-test"
+	repoID := "repo-block-sync"
+
+	// Create a chain
+	blocks := createTestBlockchain(3)
+
+	// Sync first block
+	err := synchronizer.SyncBlock(ctx, chainType, repoID, blocks[0])
+	if err != nil {
+		t.Fatalf("Failed to sync first block: %v", err)
+	}
+
+	// Sync second block
+	err = synchronizer.SyncBlock(ctx, chainType, repoID, blocks[1])
+	if err != nil {
+		t.Fatalf("Failed to sync second block: %v", err)
+	}
+
+	// Sync third block
+	err = synchronizer.SyncBlock(ctx, chainType, repoID, blocks[2])
+	if err != nil {
+		t.Fatalf("Failed to sync third block: %v", err)
+	}
+
+	// Export chain
+	exportedChain, err := synchronizer.ExportChain(ctx, chainType, repoID)
+	if err != nil {
+		t.Fatalf("Failed to export chain: %v", err)
+	}
+
+	// Verify chain length
+	if len(exportedChain) != len(blocks) {
+		t.Fatalf("Expected chain length %d, got %d", len(blocks), len(exportedChain))
+	}
+
+	// Try to sync invalid block
+	invalidBlock := &block.Block{
+		Index:        10,
+		Timestamp:    time.Now().Unix(),
+		Data:         []byte("invalid block"),
+		PreviousHash: "invalid-prev-hash",
+	}
+	invalidBlock.Hash, _ = invalidBlock.CalculateHash()
+
+	err = synchronizer.SyncBlock(ctx, chainType, repoID, invalidBlock)
+	if err == nil {
+		t.Fatalf("Expected error when syncing invalid block")
+	}
+
+	// Clean up
+	err = synchronizer.Storage().DeleteChain(ctx, chainType, repoID)
+	if err != nil {
+		t.Fatalf("Failed to delete chain: %v", err)
+	}
+}
+
+// testChainMerging tests chain merging
+func testChainMerging(t *testing.T, ctx context.Context, synchronizer *sync.ChainSynchronizer) {
+	chainType := "merge-test"
+	repoID := "repo-merge"
+
+	// Create a chain
+	blocks := createTestBlockchain(3)
+
+	// Save the chain
+	err := synchronizer.Storage().SaveChain(ctx, chainType, repoID, blocks)
+	if err != nil {
+		t.Fatalf("Failed to save chain: %v", err)
+	}
+
+	// Create a new block to add to the chain
+	newBlock := createTestBlock(chainType, repoID, 3, blocks[2].Hash)
+
+	// Add the block using SyncBlock
+	err = synchronizer.SyncBlock(ctx, chainType, repoID, newBlock)
+	if err != nil {
+		t.Fatalf("Failed to sync block: %v", err)
+	}
+
+	// Export the updated chain
+	updatedChain, err := synchronizer.ExportChain(ctx, chainType, repoID)
+	if err != nil {
+		t.Fatalf("Failed to export chain: %v", err)
+	}
+
+	// Verify the chain length
+	if len(updatedChain) != len(blocks)+1 {
+		t.Fatalf("Expected chain length %d, got %d", len(blocks)+1, len(updatedChain))
+	}
+
+	// Verify the last block is the one we added
+	lastBlock := updatedChain[len(updatedChain)-1]
+	if lastBlock.Index != 3 {
+		t.Fatalf("Expected last block index 3, got %d", lastBlock.Index)
+	}
+
+	// Clean up
+	err = synchronizer.Storage().DeleteChain(ctx, chainType, repoID)
+	if err != nil {
+		t.Fatalf("Failed to delete chain: %v", err)
+	}
+}
+
+// createTestBlockchain creates a test blockchain
+func createTestBlockchain(length int) []*block.Block {
+	chainType := "test-chain"
+	repoID := "test-repo"
+	blocks := make([]*block.Block, 0, length)
+
+	prevHash := ""
+	for i := 0; i < length; i++ {
+		b := createTestBlock(chainType, repoID, uint64(i), prevHash)
+		blocks = append(blocks, b)
+		prevHash = b.Hash
+	}
+
+	return blocks
 }

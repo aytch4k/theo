@@ -26,18 +26,16 @@ func TestStorageIntegration(t *testing.T) {
 			Type:             storage.StorageTypeSQLite,
 			ConnectionString: "test-data/sqlite-storage-integration.db",
 		},
-		// Aerospike storage backend
 		"aerospike": {
 			Type:               storage.StorageTypeAerospike,
-			AerospikeHost:      getEnv("AEROSPIKE_HOST", "localhost"),
+			AerospikeHost:      getEnv("AEROSPIKE_HOST", "aerospike"),
 			AerospikePort:      3000,
 			AerospikeNamespace: getEnv("AEROSPIKE_NAMESPACE", "theo"),
 			AerospikeSet:       "integration-test",
 		},
-		// IPFS storage backend
 		"ipfs": {
 			Type:         storage.StorageTypeIPFS,
-			IPFSHost:     getEnv("IPFS_HOST", "localhost"),
+			IPFSHost:     getEnv("IPFS_HOST", "ipfs"),
 			IPFSPort:     5001,
 			IPFSProtocol: "http",
 			Path:         "test-data/ipfs-cache-integration",

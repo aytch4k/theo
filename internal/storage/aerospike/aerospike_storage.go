@@ -190,7 +190,7 @@ func (as *AerospikeStorage) SaveChain(ctx context.Context, chainType, repoID str
 // saveBlock saves a block to Aerospike
 func (as *AerospikeStorage) saveBlock(chainType, repoID string, b *block.Block) error {
 	blockKey := as.getBlockKey(chainType, repoID, b.Hash)
-	key, err := aero.NewKey(as.namespace, as.set, blockKey+":"+blockKey)
+	key, err := aero.NewKey(as.namespace, as.set, blockKey)
 	if err != nil {
 		return fmt.Errorf("failed to create block key: %w", err)
 	}
@@ -203,7 +203,11 @@ func (as *AerospikeStorage) saveBlock(chainType, repoID string, b *block.Block) 
 
 	// Create bins map for block
 	bins := aero.BinMap{
-		"block": string(blockBytes),
+		"block":      string(blockBytes),
+		"chain_type": chainType,
+		"repo_id":    repoID,
+		"hash":       b.Hash,
+		"index":      b.Index,
 	}
 
 	if err := as.client.Put(as.policy, key, bins); err != nil {
@@ -250,37 +254,49 @@ func (as *AerospikeStorage) LoadChain(ctx context.Context, chainType, repoID str
 		return nil, fmt.Errorf("failed to unmarshal metadata: %w", jsonErr)
 	}
 
-	// Query blocks - use scan and filter manually
+	// Query blocks - use scan and filter by bins
 	recordset, err := as.client.ScanAll(nil, as.namespace, as.set)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query blocks: %w", err)
 	}
 
 	var blocks []*block.Block
-	blockKeyPrefix := blockKey + ":" + chainKey
+	blockKeyPrefix := blockKey
 
 	for res := range recordset.Results() {
 		if res.Err != nil {
 			return nil, fmt.Errorf("error in query results: %w", res.Err)
 		}
 
-		// Check if this is a block for our chain
-		keyStr := res.Record.Key.String()
-		if !strings.Contains(keyStr, blockKeyPrefix) {
-			continue
-		}
-
+		// Check if this is a block record
 		blockJSON, ok := res.Record.Bins["block"].(string)
 		if !ok {
 			continue
 		}
 
-		var b block.Block
-		if jsonErr := json.Unmarshal([]byte(blockJSON), &b); jsonErr != nil {
-			return nil, fmt.Errorf("failed to unmarshal block: %w", jsonErr)
-		}
+		// Check if this block belongs to our chain
+		recordChainType, hasChainType := res.Record.Bins["chain_type"].(string)
+		recordRepoID, hasRepoID := res.Record.Bins["repo_id"].(string)
 
-		blocks = append(blocks, &b)
+		if hasChainType && hasRepoID && recordChainType == chainType && recordRepoID == repoID {
+			var b block.Block
+			if jsonErr := json.Unmarshal([]byte(blockJSON), &b); jsonErr != nil {
+				return nil, fmt.Errorf("failed to unmarshal block: %w", jsonErr)
+			}
+
+			blocks = append(blocks, &b)
+		} else if !hasChainType || !hasRepoID {
+			// Fallback to key check for older records
+			keyStr := res.Record.Key.String()
+			if strings.Contains(keyStr, blockKeyPrefix) && strings.Contains(keyStr, chainType) && strings.Contains(keyStr, repoID) {
+				var b block.Block
+				if jsonErr := json.Unmarshal([]byte(blockJSON), &b); jsonErr != nil {
+					return nil, fmt.Errorf("failed to unmarshal block: %w", jsonErr)
+				}
+
+				blocks = append(blocks, &b)
+			}
+		}
 	}
 
 	// Sort blocks by index
@@ -642,7 +658,7 @@ func (as *AerospikeStorage) SaveBlock(ctx context.Context, chainType, repoID str
 
 	// Check if block already exists
 	blockKey := as.getBlockKey(chainType, repoID, b.Hash)
-	key, err := aero.NewKey(as.namespace, as.set, blockKey+":"+blockKey)
+	key, err := aero.NewKey(as.namespace, as.set, blockKey)
 	if err != nil {
 		return fmt.Errorf("failed to create block key: %w", err)
 	}
@@ -711,7 +727,7 @@ func (as *AerospikeStorage) LoadBlock(ctx context.Context, chainType, repoID str
 	}
 
 	blockKey := as.getBlockKey(chainType, repoID, blockHash)
-	key, err := aero.NewKey(as.namespace, as.set, blockKey+":"+blockKey)
+	key, err := aero.NewKey(as.namespace, as.set, blockKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create block key: %w", err)
 	}
@@ -790,7 +806,7 @@ func (as *AerospikeStorage) DeleteBlock(ctx context.Context, chainType, repoID s
 
 	// Check if block exists
 	blockKey := as.getBlockKey(chainType, repoID, blockHash)
-	key, err := aero.NewKey(as.namespace, as.set, blockKey+":"+blockKey)
+	key, err := aero.NewKey(as.namespace, as.set, blockKey)
 	if err != nil {
 		return fmt.Errorf("failed to create block key: %w", err)
 	}

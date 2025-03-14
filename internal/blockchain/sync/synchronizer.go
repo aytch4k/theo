@@ -43,6 +43,11 @@ type ChainSynchronizer struct {
 	strategy  SyncStrategy
 }
 
+// Storage returns the storage backend
+func (s *ChainSynchronizer) Storage() storage.Storage {
+	return s.storage
+}
+
 // NewChainSynchronizer creates a new chain synchronizer
 func NewChainSynchronizer(s storage.Storage, options ...func(*ChainSynchronizer)) *ChainSynchronizer {
 	sync := &ChainSynchronizer{
