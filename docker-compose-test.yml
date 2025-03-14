@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  # SQLite doesn't need a container as it's embedded
+
+  # Aerospike
+  aerospike:
+    image: aerospike/aerospike-server:latest
+    ports:
+      - "3000:3000"
+      - "3001:3001"
+      - "3002:3002"
+    volumes:
+      - aerospike-test-data:/opt/aerospike/data
+    environment:
+      - NAMESPACE=theo
+    healthcheck:
+      test: ["CMD", "asinfo", "-v", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # IPFS
+  ipfs:
+    image: ipfs/kubo:latest
+    ports:
+      - "4001:4001"
+      - "5001:5001"
+      - "8080:8080"
+    volumes:
+      - ipfs-test-data:/data/ipfs
+    environment:
+      - IPFS_PROFILE=server
+    healthcheck:
+      test: ["CMD", "ipfs", "id"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Theo test runner
+  theo-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    depends_on:
+      - aerospike
+      - ipfs
+    volumes:
+      - ./:/app
+    environment:
+      - AEROSPIKE_HOST=aerospike
+      - AEROSPIKE_PORT=3000
+      - AEROSPIKE_NAMESPACE=theo
+      - IPFS_HOST=ipfs
+      - IPFS_PORT=5001
+      - IPFS_PROTOCOL=http
+    command: ["go", "test", "./test", "-v"]
+
+volumes:
+  aerospike-test-data:
+  ipfs-test-data:
