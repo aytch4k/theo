@@ -181,6 +181,60 @@ def verify_ipfs():
             if "Hash" in response:
                 cid = response["Hash"]
                 print(f"✅ Successfully added file to IPFS with CID: {cid}")
+                
+                # Pin the file to ensure it persists
+                print(f"Pinning file with CID: {cid}...")
+                pin_result = subprocess.run(
+                    ["curl", "-s", "--connect-timeout", "10", "-X", "POST",
+                     f"{protocol}://{host}:{port}/api/v0/pin/add?arg={cid}"],
+                    capture_output=True,
+                    text=True
+                )
+                
+                if pin_result.returncode == 0:
+                    print(f"✅ Successfully pinned file with CID: {cid}")
+                else:
+                    print(f"⚠️ Failed to pin file: {pin_result.stderr}")
+                
+                # Initialize MFS directory if needed
+                print(f"Initializing IPFS MFS...")
+                mkdir_result = subprocess.run(
+                    ["curl", "-s", "--connect-timeout", "10", "-X", "POST",
+                     f"{protocol}://{host}:{port}/api/v0/files/mkdir?arg=/db-verify-files&parents=true"],
+                    capture_output=True,
+                    text=True
+                )
+                
+                if mkdir_result.returncode != 0:
+                    print(f"⚠️ Failed to initialize MFS directory: {mkdir_result.stderr}")
+                
+                # Add to MFS (Mutable File System) to make it visible in the web interface
+                print(f"Adding file to IPFS MFS...")
+                mfs_result = subprocess.run(
+                    ["curl", "-s", "--connect-timeout", "10", "-X", "POST",
+                     f"{protocol}://{host}:{port}/api/v0/files/cp?arg=/ipfs/{cid}&arg=/db-verify-files/verify-db-test.txt"],
+                    capture_output=True,
+                    text=True
+                )
+                
+                if mfs_result.returncode == 0:
+                    print(f"✅ Successfully added file to MFS as /db-verify-files/verify-db-test.txt")
+                else:
+                    print(f"⚠️ Failed to add file to MFS: {mfs_result.stderr}")
+                    
+                # List files in MFS to verify
+                print(f"Listing files in MFS:")
+                ls_result = subprocess.run(
+                    ["curl", "-s", "--connect-timeout", "10", "-X", "POST",
+                     f"{protocol}://{host}:{port}/api/v0/files/ls?arg=/db-verify-files"],
+                    capture_output=True,
+                    text=True
+                )
+                
+                if ls_result.returncode == 0:
+                    print(f"MFS directory contents: {ls_result.stdout}")
+                else:
+                    print(f"⚠️ Failed to list MFS directory: {ls_result.stderr}")
             else:
                 print(f"❌ Failed to add file to IPFS: {result.stdout.strip()}")
                 return

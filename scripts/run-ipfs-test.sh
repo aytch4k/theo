@@ -44,9 +44,38 @@ echo "Adding file to IPFS..."
 ADD_RESULT=$(curl -s -X POST -F file=@/tmp/ipfs-test.txt http://localhost:5001/api/v0/add)
 echo "Add result: $ADD_RESULT"
 
-# Extract hash using grep
-HASH=$(echo $ADD_RESULT | grep -o '"Hash":"[^"]*"' | grep -o '[^"]*$')
+# Extract hash using jq if available, otherwise use grep
+if command -v jq &> /dev/null; then
+    HASH=$(echo $ADD_RESULT | jq -r '.Hash')
+else
+    HASH=$(echo $ADD_RESULT | grep -o '"Hash":"[^"]*"' | grep -o '[^"]*$')
+fi
+
+if [ -z "$HASH" ]; then
+    echo "❌ Failed to extract hash from IPFS response"
+    echo "Raw response: $ADD_RESULT"
+    exit 1
+fi
+
 echo "File added with hash: $HASH"
+
+# Pin the file to ensure it persists
+echo -e "\nPinning file to IPFS..."
+PIN_RESULT=$(curl -s -X POST "http://localhost:5001/api/v0/pin/add?arg=$HASH")
+echo "Pin result: $PIN_RESULT"
+
+# Initialize MFS if needed
+echo -e "\nInitializing IPFS MFS..."
+MKDIR_RESULT=$(curl -s -X POST "http://localhost:5001/api/v0/files/mkdir?arg=/test-files&parents=true")
+
+# Add the file to MFS (Mutable File System) to make it visible in the web interface
+echo -e "\nAdding file to IPFS MFS (visible in web interface)..."
+MFS_RESULT=$(curl -s -X POST "http://localhost:5001/api/v0/files/cp?arg=/ipfs/$HASH&arg=/test-files/ipfs-test.txt")
+echo "MFS result: $MFS_RESULT"
+
+# List files in MFS to verify
+echo -e "\nListing files in MFS:"
+curl -s -X POST "http://localhost:5001/api/v0/files/ls?arg=/test-files" | jq
 
 # Print success message
 echo -e "\n====================================="

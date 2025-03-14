@@ -181,23 +181,9 @@
                     logResult(`Block hash mismatch: expected ${blockWithMeta.hash}, got ${retrievedBlock.hash}`, false);
                 }
                 
-                // Delete block
-                await new Promise((resolve, reject) => {
-                    const transaction = db.transaction(["blocks"], "readwrite");
-                    const blocksStore = transaction.objectStore("blocks");
-                    
-                    const request = blocksStore.delete(blockWithMeta.id);
-                    
-                    request.onsuccess = function() {
-                        resolve();
-                    };
-                    
-                    request.onerror = function() {
-                        reject("Error deleting block: " + request.error);
-                    };
-                });
-                
-                logResult("Block deleted successfully");
+                // Comment out the delete operation to keep data in IndexedDB
+                // This ensures data persists and can be seen in browser dev tools
+                logResult("Skipping block deletion to keep data in IndexedDB");
                 
                 // Close database
                 db.close();
